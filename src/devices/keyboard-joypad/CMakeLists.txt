@@ -4,24 +4,14 @@
 # This software may be modified and distributed under the terms of the
 # BSD-2-Clause license. See the accompanying LICENSE file for details.
 
-set(DEPENDS_STRING "glfw3_FOUND;GLEW_FOUND;OpenGL_FOUND")
-
-if (NOT WIN32)
-    string(APPEND DEPENDS_STRING ";X11_FOUND")
-endif()
-
 yarp_prepare_plugin(keyboardJoypad
   CATEGORY device
   TYPE yarp::dev::KeyboardJoypad
   INCLUDE KeyboardJoypad.h
-  DEPENDS ${DEPENDS_STRING}
+  DEFAULT ON
   INTERNAL
   QUIET
 )
-
-if(NOT ENABLE_keyboard-joypad)
-  return()
-endif()
 
 set(yarp_keyboard-joypad_SRCS
   KeyboardJoypad.cpp
