@@ -15,6 +15,7 @@ yarp_prepare_plugin(keyboardJoypad
 
 set(yarp_keyboard-joypad_SRCS
   KeyboardJoypad.cpp
+  KeyboardJoypadLogComponent.cpp
 )
 
 set(yarp_keyboard-joypad_HDRS
