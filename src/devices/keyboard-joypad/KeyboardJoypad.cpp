@@ -22,11 +22,21 @@
 
 #include <mutex>
 #include <atomic>
+#include <unordered_map>
+#include <string>
 
 #include <yarp/os/LogStream.h>
 
 #include <KeyboardJoypad.h>
 #include <KeyboardJoypadLogComponent.h>
+
+
+struct ButtonState {
+    ImGuiKey key = ImGuiKey_COUNT;
+    int col = 0;
+    bool active = false;
+    bool buttonPressed = false;
+};
 
 class yarp::dev::KeyboardJoypad::Impl
 {
@@ -37,11 +47,13 @@ public:
 
     std::mutex mutex;
 
-    //---TO BE REMOVED
-    bool show_demo_window = true;
-    bool show_another_window = false;
+    ImVec4 button_inactive_color;
+    ImVec4 button_active_color;
+
+    std::vector<std::unordered_map<std::string, ButtonState>> buttons_table;
+
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-    //---
+
 
     static void GLMessageCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei, const GLchar* message, const void*) {
         yCError(KEYBOARDJOYPAD, "GL CALLBACK: %s source = 0x%x, type = 0x%x, id = 0x%x, severity = 0x%x, message = %s",
@@ -54,6 +66,8 @@ public:
     }
 
 };
+
+using ButtonsMap = std::unordered_map<std::string, ButtonState>;
 
 yarp::dev::KeyboardJoypad::KeyboardJoypad()
     : yarp::dev::DeviceDriver(),
@@ -81,6 +95,7 @@ bool yarp::dev::KeyboardJoypad::open(yarp::os::Searchable& cfg)
 
 bool yarp::dev::KeyboardJoypad::close()
 {
+    yCInfo(KEYBOARDJOYPAD) << "Closing the device";
     this->askToStop();
     return true;
 }
@@ -125,8 +140,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+    io.ConfigFlags |= ImGuiConfigFlags_NavNoCaptureKeyboard;
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
@@ -134,6 +148,13 @@ bool yarp::dev::KeyboardJoypad::threadInit()
     // Setup Platform/Renderer backends
     ImGui_ImplGlfw_InitForOpenGL(m_pimpl->window, true);
     ImGui_ImplOpenGL3_Init();
+
+    m_pimpl->button_inactive_color = ImGui::GetStyle().Colors[ImGuiCol_Button];
+    m_pimpl->button_active_color = ImVec4(0.7f, 0.5f, 0.3f, 1.0f);
+
+    m_pimpl->buttons_table.push_back(ButtonsMap({{"top", {.key = ImGuiKey_UpArrow, .col = 1}}}));
+    m_pimpl->buttons_table.push_back(ButtonsMap({{"left", {.key = ImGuiKey_LeftArrow, .col = 0}}, {"right", {.key = ImGuiKey_RightArrow, .col = 2}}}));
+    m_pimpl->buttons_table.push_back(ButtonsMap({ {"bottom", {.key = ImGuiKey_DownArrow, .col = 1}} }));
 
     return true;
 }
@@ -173,11 +194,7 @@ void yarp::dev::KeyboardJoypad::run()
     if (!m_pimpl->need_to_close)
     {
         std::lock_guard<std::mutex> lock(m_pimpl->mutex);
-        // Poll and handle events (inputs, window resize, etc.)
-                // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
-                // - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application, or clear/overwrite your copy of the mouse data.
-                // - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application, or clear/overwrite your copy of the keyboard data.
-                // Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
+
         glfwPollEvents();
 
         // Start the Dear ImGui frame
@@ -185,43 +202,49 @@ void yarp::dev::KeyboardJoypad::run()
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
-        if (m_pimpl->show_demo_window)
-            ImGui::ShowDemoWindow(&m_pimpl->show_demo_window);
+        // Create a window
+        ImGui::Begin("Arrows", 0, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse);
 
-        // 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
+        //Define the size of the buttons
+        float buttonsWidth = 100;
+        float buttonsHeight = 100;
+        ImVec2 buttonSize(buttonsWidth, buttonsHeight);
+
+        int n_cols = 3;
+        ImGui::BeginTable("Buttons", n_cols, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_SizingMask_);
+        for (auto& row : m_pimpl->buttons_table)
         {
-            static float f = 0.0f;
-            static int counter = 0;
+            ImGui::TableNextRow();
+            for (auto& button : row)
+            {
+                ImGui::TableSetColumnIndex(button.second.col);
 
-            ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
+                if (ImGui::IsKeyPressed(button.second.key))
+                {
+                    button.second.buttonPressed = true;
+                    button.second.active = true;
+                }
 
-            ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
-            ImGui::Checkbox("Demo Window", &m_pimpl->show_demo_window);      // Edit bools storing our window open/close state
-            ImGui::Checkbox("Another Window", &m_pimpl->show_another_window);
+                if (button.second.buttonPressed && ImGui::IsKeyReleased(button.second.key))
+                {
+                    button.second.buttonPressed = false;
+                    button.second.active = false;
+                }
 
-            ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-            ImGui::ColorEdit3("clear color", (float*)&m_pimpl->clear_color); // Edit 3 floats representing a color
+                ImGui::PushStyleColor(ImGuiCol_Button, button.second.active ? m_pimpl->button_active_color : m_pimpl->button_inactive_color);
+                // Create a button
+                if (ImGui::Button(button.first.c_str(), buttonSize))
+                {
+                    button.second.active = !button.second.active;
+                }
 
-            if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
-                counter++;
-            ImGui::SameLine();
-            ImGui::Text("counter = %d", counter);
-
-            ImGuiIO& io = ImGui::GetIO();
-            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-            ImGui::End();
+                ImGui::PopStyleColor();
+            }
         }
+        ImGui::EndTable();
 
-        // 3. Show another simple window.
-        if (m_pimpl->show_another_window)
-        {
-            ImGui::Begin("Another Window", &m_pimpl->show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
-            ImGui::Text("Hello from another window!");
-            if (ImGui::Button("Close Me"))
-                m_pimpl->show_another_window = false;
-            ImGui::End();
-        }
+
+        ImGui::End();
 
         // Rendering
         ImGui::Render();
@@ -257,6 +280,7 @@ bool yarp::dev::KeyboardJoypad::updateService()
 
 bool yarp::dev::KeyboardJoypad::stopService()
 {
+    yCInfo(KEYBOARDJOYPAD) << "Stopping the service";
     return this->close();
 }
 
