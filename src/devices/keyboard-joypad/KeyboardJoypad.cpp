@@ -110,7 +110,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
         return false;
     }
 
-    m_pimpl->window = glfwCreateWindow(1280, 720, "YARP OpenXr Device Window", nullptr, nullptr);
+    m_pimpl->window = glfwCreateWindow(1280, 720, "YARP Keyboard as Joypad Device Window", nullptr, nullptr);
     if (!m_pimpl->window) {
         yCError(KEYBOARDJOYPAD, "Could not create window");
         return false;
