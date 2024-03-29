@@ -1,0 +1,14 @@
+# build folder
+build/*
+
+# emacs
+*~
+\#*\#
+
+# Qtcreator
+*.user*
+*.autosave
+
+# Visual Studio
+.vs/
+CmakeSettings.json
