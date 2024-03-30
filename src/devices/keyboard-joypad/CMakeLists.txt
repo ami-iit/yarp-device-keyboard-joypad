@@ -11,6 +11,8 @@ yarp_prepare_plugin(keyboardJoypad
   DEFAULT ON
   INTERNAL
   QUIET
+  EXTRA_CONFIG
+    WRAPPER=JoypadControlServer
 )
 
 set(yarp_keyboard-joypad_SRCS
