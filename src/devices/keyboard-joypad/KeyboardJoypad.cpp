@@ -104,35 +104,41 @@ struct Settings {
     float gui_period = 0.033f;
     int window_width = 1280;
     int window_height = 720;
+    int buttons_per_row = 3;
 
     bool parseFromConfigFile(yarp::os::Searchable& cfg)
     {
-        if (!parseFloat(cfg, "button_size", static_cast<float>(1), static_cast<float>(1e5), button_size))
+        if (!parseFloat(cfg, "button_size", 1.f, 1e5f, button_size))
         {
             return false;
         }
 
-        if (!parseFloat(cfg, "min_button_size", static_cast<float>(1), static_cast<float>(1e5), min_button_size))
+        if (!parseFloat(cfg, "min_button_size", 1.f, 1e5f, min_button_size))
         {
             return false;
         }
 
-        if (!parseFloat(cfg, "max_button_size", static_cast<float>(1), static_cast<float>(1e5), max_button_size))
+        if (!parseFloat(cfg, "max_button_size", 1.f, 1e5f, max_button_size))
         {
             return false;
         }
 
-        if (!parseFloat(cfg, "font_multiplier", static_cast<float>(0.01), static_cast<float>(1e5), font_multiplier))
+        if (!parseFloat(cfg, "font_multiplier", 0.01f, 1e5f, font_multiplier))
         {
             return false;
         }
 
-        if (!parseFloat(cfg, "min_font_multiplier", static_cast<float>(0.01), static_cast<float>(1e5), min_font_multiplier))
+        if (!parseFloat(cfg, "min_font_multiplier", 0.01f, 1e5f, min_font_multiplier))
         {
             return false;
         }
 
-        if (!parseFloat(cfg, "max_font_multiplier", static_cast<float>(0.01), static_cast<float>(1e5), max_font_multiplier))
+        if (!parseFloat(cfg, "max_font_multiplier", 0.01f, 1e5f, max_font_multiplier))
+        {
+            return false;
+        }
+
+        if (!parseFloat(cfg, "gui_period", 1e-3f, 1e5f, gui_period))
         {
             return false;
         }
@@ -147,7 +153,7 @@ struct Settings {
             return false;
         }
 
-        if (!parseFloat(cfg, "gui_period", static_cast<float>(1e-3), static_cast<float>(1e5), gui_period))
+        if (!parseInt(cfg, "buttons_per_row", 1, 100, buttons_per_row))
         {
             return false;
         }
@@ -283,8 +289,10 @@ public:
 
     std::vector<std::pair<std::string, ButtonsTable>> sticks;
     std::vector<std::vector<size_t>> sticks_to_axes;
+    ButtonsTable buttons;
     std::vector<double> axes_values;
     std::vector<std::vector<double>> sticks_values;
+    std::vector<double> buttons_values;
 
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
@@ -299,7 +307,123 @@ public:
         yCError(KEYBOARDJOYPAD, "GLFW error %d: %s", error, description);
     }
 
-    void renderButtonsTable(const std::string& name, ButtonsTable& buttons_table, const ImVec2& position)
+    bool parseButtonsSettings(yarp::os::Searchable& cfg)
+    {
+        if (!cfg.check("buttons"))
+        {
+            yCInfo(KEYBOARDJOYPAD) << "The key \"buttons\" is not present in the configuration file. No buttons will be created.";
+            return true;
+        }
+
+        if (!cfg.find("buttons").isList())
+        {
+            yCError(KEYBOARDJOYPAD) << "The value of \"buttons\" is not a list";
+            return false;
+        }
+
+        yarp::os::Bottle* buttons_list = cfg.find("buttons").asList();
+
+        int col = 0;
+        for (size_t i = 0; i < buttons_list->size(); i++)
+        {
+            if (!buttons_list->get(i).isString())
+            {
+                yCError(KEYBOARDJOYPAD) << "The value at index" << i << "of the buttons list is not a string.";
+                return false;
+            }
+
+            std::string button_with_alias = buttons_list->get(i).asString();
+            std::string button = button_with_alias;
+            std::string alias = "";
+
+            //get only the substring before a possible _ and transform it to lower case
+            size_t pos = button_with_alias.find('_');
+            bool have_alias = false;
+            if (pos != std::string::npos)
+            {
+                button = button_with_alias.substr(0, pos);
+                alias = button_with_alias.substr(pos + 1);
+                have_alias = true;
+            }
+            else
+            {
+                alias = button;
+            }
+
+            std::transform(button.begin(), button.end(), button.begin(), ::toupper);
+
+            ButtonState newButton;
+            newButton.index = i;
+
+            if (button.size() == 1 && button[0] >= 'A' && button[0] <= 'Z')
+            {
+                newButton.key = static_cast<ImGuiKey>(ImGuiKey_A + button[0] - 'A');
+            }
+            else if (button.size() && button[0] >= '0' && button[0] <= '9')
+            {
+                newButton.key = static_cast<ImGuiKey>(ImGuiKey_0 + button[0] - '0');
+            }
+            else if (button == "SPACE")
+            {
+                newButton.key = ImGuiKey_Space;
+            }
+            else if (button == "ENTER")
+            {
+                newButton.key = ImGuiKey_Enter;
+            }
+            else if (button == "ESCAPE")
+            {
+                newButton.key = ImGuiKey_Escape;
+            }
+            else if (button == "BACKSPACE")
+            {
+                newButton.key = ImGuiKey_Backspace;
+            }
+            else if (button == "DELETE")
+            {
+                newButton.key = ImGuiKey_Delete;
+            }
+            else if (button == "LEFT")
+            {
+                newButton.key = ImGuiKey_LeftArrow;
+            }
+            else if (button == "RIGHT")
+            {
+                newButton.key = ImGuiKey_RightArrow;
+            }
+            else if (button == "UP")
+            {
+                newButton.key = ImGuiKey_UpArrow;
+            }
+            else if (button == "DOWN")
+            {
+                newButton.key = ImGuiKey_DownArrow;
+            }
+            else if (button == "TAB")
+            {
+                newButton.key = ImGuiKey_Tab;
+            }
+
+            if (newButton.key != ImGuiKey_COUNT && have_alias)
+            {
+                alias += " (" + button + ")";
+            }
+
+            if (buttons.first.empty() || buttons.first.back().size() == settings.buttons_per_row)
+            {
+                buttons.first.emplace_back();
+                col = 0;
+            }
+            newButton.col = col++;
+            buttons.first.back()[alias] = newButton;
+
+        }
+        buttons_values.resize(buttons_list->size(), 0.0);
+
+        return true;
+    }
+
+    void renderButtonsTable(const std::string& name, ButtonsTable& buttons_table, const ImVec2& position, bool forceReset, std::vector<double>& values)
     {
 
         //Define the size of the buttons
@@ -311,6 +435,8 @@ public:
         ImGui::SetWindowFontScale(settings.font_multiplier);
 
         ImGui::BeginTable(name.c_str(), n_cols, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_SizingMask_);
+
+        bool hold_button = ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && forceReset;
         for (auto& row : buttons_table.first)
         {
             ImGui::TableNextRow();
@@ -318,16 +444,19 @@ public:
             {
                 ImGui::TableSetColumnIndex(button.second.col);
 
-                if (ImGui::IsKeyPressed(button.second.key))
+                if (button.second.key != ImGuiKey_COUNT)
                 {
-                    button.second.buttonPressed = true;
-                    button.second.active = true;
-                }
-
-                if (button.second.buttonPressed && ImGui::IsKeyReleased(button.second.key))
-                {
-                    button.second.buttonPressed = false;
-                    button.second.active = false;
+                    if (ImGui::IsKeyPressed(button.second.key))
+                    {
+                        button.second.buttonPressed = true;
+                        button.second.active = true;
+                    }
+                    else if (button.second.buttonPressed && ImGui::IsKeyReleased(button.second.key))
+                    {
+                        button.second.buttonPressed = false;
+                        if (!hold_button)
+                            button.second.active = false;
+                    }
                 }
 
                 ImGuiStyle& style = ImGui::GetStyle();
@@ -336,12 +465,23 @@ public:
                 style.Colors[ImGuiCol_ButtonHovered] = buttonColor;
                 style.Colors[ImGuiCol_ButtonActive] = buttonColor;
 
-                axes_values[button.second.index] += button.second.sign * button.second.active;
+                values[button.second.index] += button.second.sign * button.second.active;
 
                 // Create a button
-                if (ImGui::Button(button.first.c_str(), buttonSize))
+                bool buttonReleased = ImGui::Button(button.first.c_str(), buttonSize);
+                bool buttonClicked = ImGui::IsItemActive();
+
+                if (buttonReleased && !forceReset)
                 {
-                    button.second.active = !button.second.active;
+                    button.second.active = !button.second.active; //Toggle the button
+                }
+                else if (forceReset && buttonClicked) //The button is clicked and is not a toggling button
+                {
+                    button.second.active = true;
+                }
+                else if (forceReset && !button.second.buttonPressed && !hold_button) //The button is not clicked and is not a toggling button
+                {
+                    button.second.active = false;
                 }
             }
         }
@@ -373,6 +513,13 @@ bool yarp::dev::KeyboardJoypad::open(yarp::os::Searchable& cfg)
     }
 
     if (!m_pimpl->axes_settings.parseFromConfigFile(cfg))
+    {
+        return false;
+    }
+
+    m_pimpl->buttons.second = m_pimpl->settings.buttons_per_row;
+
+    if (!m_pimpl->parseButtonsSettings(cfg))
     {
         return false;
     }
@@ -515,7 +662,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             m_pimpl->sticks_to_axes.back().push_back(index);
             m_pimpl->sticks_values.back().push_back(0);
             arrows.first.push_back(ButtonsMap({{"left", {.key = ImGuiKey_LeftArrow, .col = 0, .sign = -sign, .index = index}},
-                                                    {"right", {.key = ImGuiKey_RightArrow, .col = 1 + up_down, .sign = sign, .index = index}}}));
+                                               {"right", {.key = ImGuiKey_RightArrow, .col = 1 + up_down, .sign = sign, .index = index}}}));
         }
         if (up_down)
         {
@@ -583,15 +730,30 @@ void yarp::dev::KeyboardJoypad::run()
             value = 0;
         }
 
+        for (double& value : m_pimpl->buttons_values)
+        {
+            value = 0;
+        }
+
         ImVec2 position(m_pimpl->settings.button_size, m_pimpl->settings.button_size);
 
         for (auto& stick : m_pimpl->sticks)
         {
-            m_pimpl->renderButtonsTable(stick.first, stick.second, position);
-            position.x += 4 * m_pimpl->settings.button_size; // Move the next table to the right (3 columns + 1 space)
+            position.y = m_pimpl->settings.button_size; //Keep the sticks on the save level
+            m_pimpl->renderButtonsTable(stick.first, stick.second, position, false, m_pimpl->axes_values);
+            position.x += (stick.second.second + 1) * m_pimpl->settings.button_size; // Move the next table to the right (n columns + 1 space)
+            position.y += (stick.second.first.size() + 1) * m_pimpl->settings.button_size; // Move the next table down (n rows + 1 space)
         }
-        position.x = m_pimpl->settings.button_size;
-        position.y += 4 * m_pimpl->settings.button_size; // Move the next table down (3 rows + 1 space)
+        float button_table_height = position.y;
+
+        if (!m_pimpl->buttons_values.empty())
+        {
+            position.y = m_pimpl->settings.button_size; //Keep the buttons on the save level of the sticks
+            m_pimpl->renderButtonsTable("Buttons", m_pimpl->buttons, position, true, m_pimpl->buttons_values);
+        }
+
+        position.x = m_pimpl->settings.button_size; //Reset the x position
+        position.y = button_table_height; //Move the next table down
 
         for (size_t i = 0; i < m_pimpl->sticks_to_axes.size(); ++i)
         {
@@ -605,8 +767,7 @@ void yarp::dev::KeyboardJoypad::run()
         ImGui::Begin("Settings", 0, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
         ImGui::SetWindowFontScale(m_pimpl->settings.font_multiplier);
         ImGuiIO& io = ImGui::GetIO();
-        period = io.DeltaTime;
-        ImGui::Text("Application average %.1f ms/frame (%.1f FPS)", period * 1000.0f, io.Framerate);
+        ImGui::Text("Application average %.1f ms/frame (%.1f FPS)", io.DeltaTime * 1000.0f, io.Framerate);
 
         int width, height;
         glfwGetWindowSize(m_pimpl->window, &width, &height);
@@ -628,6 +789,7 @@ void yarp::dev::KeyboardJoypad::run()
         glfwSwapBuffers(m_pimpl->window);
 
         desired_period = getPeriod();
+        period = getEstimatedUsed();
 
     }
     else
@@ -672,7 +834,7 @@ bool yarp::dev::KeyboardJoypad::getAxisCount(unsigned int& axis_count)
 bool yarp::dev::KeyboardJoypad::getButtonCount(unsigned int& button_count)
 {
     std::lock_guard<std::mutex> lock(m_pimpl->mutex);
-    button_count = 0;
+    button_count = static_cast<unsigned int>(m_pimpl->buttons_values.size());
     return true;
 }
 
@@ -717,7 +879,14 @@ bool yarp::dev::KeyboardJoypad::getStickDoF(unsigned int stick_id, unsigned int&
 
 bool yarp::dev::KeyboardJoypad::getButton(unsigned int button_id, float& value)
 {
-    return false; //TODO
+    std::lock_guard<std::mutex> lock(m_pimpl->mutex);
+    if (button_id >= m_pimpl->buttons_values.size())
+    {
+        yCError(KEYBOARDJOYPAD) << "The button with id" << button_id << "does not exist.";
+        return false;
+    }
+    value = static_cast<float>(m_pimpl->buttons_values[button_id]);
+    return true;
 }
 
 bool yarp::dev::KeyboardJoypad::getTrackball(unsigned int /*trackball_id*/, yarp::sig::Vector& /*value*/)
