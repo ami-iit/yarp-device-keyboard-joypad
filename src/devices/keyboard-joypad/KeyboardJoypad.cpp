@@ -101,9 +101,9 @@ struct Settings {
     float font_multiplier = 1.0;
     float min_font_multiplier = 0.5;
     float max_font_multiplier = 4.0;
+    float gui_period = 0.033f;
     int window_width = 1280;
     int window_height = 720;
-    float gui_period = 0.033;
 
     bool parseFromConfigFile(yarp::os::Searchable& cfg)
     {
@@ -233,11 +233,11 @@ struct AxesSettings
             {
                 axes[Axis::LEFT_RIGHT] = {sign, i};
             }
-            else
+            else if (axis != "")
             {
                 yCError(KEYBOARDJOYPAD) << "The value of the axes list (" << axis << ") is not a valid axis."
                                         << "Allowed values(\"ws\", \"ad\", \"up_down\", \"left_right\","
-                                        << "eventually with a + or - as prefix)";
+                                        << "eventually with a + or - as prefix, and \"\")";
                 return false;
             }
         }
@@ -564,6 +564,8 @@ void yarp::dev::KeyboardJoypad::run()
         std::lock_guard<std::mutex> lock(m_pimpl->mutex);
         m_pimpl->need_to_close = glfwWindowShouldClose(m_pimpl->window);
     }
+    double period = 0;
+    double desired_period = 0;
 
     if (!m_pimpl->need_to_close)
     {
@@ -603,7 +605,8 @@ void yarp::dev::KeyboardJoypad::run()
         ImGui::Begin("Settings", 0, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
         ImGui::SetWindowFontScale(m_pimpl->settings.font_multiplier);
         ImGuiIO& io = ImGui::GetIO();
-        ImGui::Text("Application average %.1f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+        period = io.DeltaTime;
+        ImGui::Text("Application average %.1f ms/frame (%.1f FPS)", period * 1000.0f, io.Framerate);
 
         int width, height;
         glfwGetWindowSize(m_pimpl->window, &width, &height);
@@ -624,10 +627,18 @@ void yarp::dev::KeyboardJoypad::run()
 
         glfwSwapBuffers(m_pimpl->window);
 
+        desired_period = getPeriod();
+
     }
     else
     {
         this->close();
+    }
+
+    if (period > desired_period)
+    {
+        yCWarningThrottle(KEYBOARDJOYPAD, 5.0, "The period of the GUI is higher than the period of the thread. The GUI will be updated at a lower rate.");
+        yarp::os::Time::delay(1e-3); //Sleep for 1 ms to avoid the other threads to go to starvation
     }
 
 
