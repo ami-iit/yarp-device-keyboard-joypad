@@ -489,6 +489,11 @@ public:
                     button.second.active = false;
                 }
             }
+            if (row.empty())
+            {
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Dummy(buttonSize);
+            }
         }
         ImGui::EndTable();
         ImGui::End();
@@ -615,7 +620,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
         m_pimpl->sticks_to_axes.emplace_back();
         m_pimpl->sticks_values.emplace_back();
         ButtonsTable wasd;
-        wasd.second = ws + 2 * ad; //Number of columns
+        wasd.second = ad ? 3 : 1; //Number of columns
         if (ws)
         {
             AxisSettings& ws_settings = m_pimpl->axes_settings.axes[Axis::WS];
@@ -631,7 +636,11 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             m_pimpl->sticks_to_axes.back().push_back(index);
             m_pimpl->sticks_values.back().push_back(0);
             wasd.first.push_back(ButtonsMap({ {"A", {.key = ImGuiKey_A, .col = 0, .sign = -sign, .index = index}},
-                                                   {"D", {.key = ImGuiKey_D, .col = 1 + ws, .sign = sign, .index = index}} }));
+                                                   {"D", {.key = ImGuiKey_D, .col = 2, .sign = sign, .index = index}} }));
+        }
+        else
+        {
+            wasd.first.emplace_back(); //empty row
         }
         if (ws)
         {
@@ -651,7 +660,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
         m_pimpl->sticks_to_axes.emplace_back();
         m_pimpl->sticks_values.emplace_back();
         ButtonsTable arrows;
-        arrows.second = up_down + 2 * left_right; //Number of columns
+        arrows.second = left_right ? 3 : 1; //Number of columns
         if (up_down)
         {
             AxisSettings& ws_settings = m_pimpl->axes_settings.axes[Axis::UP_DOWN];
@@ -667,7 +676,11 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             m_pimpl->sticks_to_axes.back().push_back(index);
             m_pimpl->sticks_values.back().push_back(0);
             arrows.first.push_back(ButtonsMap({{"left", {.key = ImGuiKey_LeftArrow, .col = 0, .sign = -sign, .index = index}},
-                                               {"right", {.key = ImGuiKey_RightArrow, .col = 1 + up_down, .sign = sign, .index = index}}}));
+                                               {"right", {.key = ImGuiKey_RightArrow, .col = 2, .sign = sign, .index = index}}}));
+        }
+        else
+        {
+            arrows.first.emplace_back(); //empty row
         }
         if (up_down)
         {
@@ -741,15 +754,15 @@ void yarp::dev::KeyboardJoypad::run()
         }
 
         ImVec2 position(m_pimpl->settings.button_size, m_pimpl->settings.button_size);
-
+        float button_table_height = position.y;
         for (auto& stick : m_pimpl->sticks)
         {
             position.y = m_pimpl->settings.button_size; //Keep the sticks on the save level
             m_pimpl->renderButtonsTable(stick.first, stick.second, position, false, m_pimpl->axes_values);
             position.x += (stick.second.second + 1) * m_pimpl->settings.button_size; // Move the next table to the right (n columns + 1 space)
             position.y += (stick.second.first.size() + 1) * m_pimpl->settings.button_size; // Move the next table down (n rows + 1 space)
+            button_table_height = std::max(button_table_height, position.y);
         }
-        float button_table_height = position.y;
 
         if (!m_pimpl->buttons_values.empty())
         {
