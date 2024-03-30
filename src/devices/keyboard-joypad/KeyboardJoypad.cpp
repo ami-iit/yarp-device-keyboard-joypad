@@ -415,6 +415,11 @@ public:
                 col = 0;
             }
             newButton.col = col++;
+            if (buttons.first.back().find(alias) != buttons.first.back().end())
+            {
+                yCError(KEYBOARDJOYPAD) << "The alias" << alias << "is already present in the buttons list in the same row.";
+                return false;
+            }
             buttons.first.back()[alias] = newButton;
 
         }
