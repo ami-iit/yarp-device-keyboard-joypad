@@ -359,8 +359,7 @@ public:
             std::string button = button_with_alias;
             std::string alias = "";
 
-            //get only the substring before a possible _ and transform it to lower case
-            size_t pos = button_with_alias.find('_');
+            size_t pos = button_with_alias.find(':');
             bool have_alias = false;
             if (pos != std::string::npos)
             {
