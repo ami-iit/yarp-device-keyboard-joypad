@@ -35,6 +35,7 @@
 
 
 struct ButtonState {
+    std::string alias;
     ImGuiKey key = ImGuiKey_COUNT;
     int col = 0;
     int sign = 1;
@@ -43,11 +44,9 @@ struct ButtonState {
     bool buttonPressed = false;
 };
 
-using ButtonsMap = std::unordered_map<std::string, ButtonState>;
-
 struct ButtonsTable
 {
-    std::vector<ButtonsMap> rows;
+    std::vector<std::vector<ButtonState>> rows;
     int numberOfColumns;
 };
 
@@ -415,13 +414,9 @@ public:
                 col = 0;
             }
             newButton.col = col++;
-            if (buttons.rows.back().find(alias) != buttons.rows.back().end())
-            {
-                yCError(KEYBOARDJOYPAD) << "The alias" << alias << "is already present in the buttons list in the same row.";
-                return false;
-            }
-            buttons.rows.back()[alias] = newButton;
+            newButton.alias = alias;
 
+            buttons.rows.back().push_back(newButton);
         }
         buttons_values.resize(buttons_list->size(), 0.0);
 
@@ -447,46 +442,46 @@ public:
             ImGui::TableNextRow();
             for (auto& button : row)
             {
-                ImGui::TableSetColumnIndex(button.second.col);
+                ImGui::TableSetColumnIndex(button.col);
 
-                if (button.second.key != ImGuiKey_COUNT)
+                if (button.key != ImGuiKey_COUNT)
                 {
-                    if (ImGui::IsKeyPressed(button.second.key))
+                    if (ImGui::IsKeyPressed(button.key))
                     {
-                        button.second.buttonPressed = true;
-                        button.second.active = true;
+                        button.buttonPressed = true;
+                        button.active = true;
                     }
-                    else if (button.second.buttonPressed && ImGui::IsKeyReleased(button.second.key))
+                    else if (button.buttonPressed && ImGui::IsKeyReleased(button.key))
                     {
-                        button.second.buttonPressed = false;
+                        button.buttonPressed = false;
                         if (!hold_button)
-                            button.second.active = false;
+                            button.active = false;
                     }
                 }
 
                 ImGuiStyle& style = ImGui::GetStyle();
-                ImVec4& buttonColor = button.second.active ? button_active_color : button_inactive_color;
+                ImVec4& buttonColor = button.active ? button_active_color : button_inactive_color;
                 style.Colors[ImGuiCol_Button] = buttonColor;
                 style.Colors[ImGuiCol_ButtonHovered] = buttonColor;
                 style.Colors[ImGuiCol_ButtonActive] = buttonColor;
 
-                values[button.second.index] += button.second.sign * button.second.active;
+                values[button.index] += button.sign * button.active;
 
                 // Create a button
-                bool buttonReleased = ImGui::Button(button.first.c_str(), buttonSize);
+                bool buttonReleased = ImGui::Button(button.alias.c_str(), buttonSize);
                 bool buttonClicked = ImGui::IsItemActive();
 
                 if (buttonReleased && !forceReset)
                 {
-                    button.second.active = !button.second.active; //Toggle the button
+                    button.active = !button.active; //Toggle the button
                 }
                 else if (forceReset && buttonClicked) //The button is clicked and is not a toggling button
                 {
-                    button.second.active = true;
+                    button.active = true;
                 }
-                else if (forceReset && !button.second.buttonPressed && !hold_button) //The button is not clicked and is not a toggling button
+                else if (forceReset && !button.buttonPressed && !hold_button) //The button is not clicked and is not a toggling button
                 {
-                    button.second.active = false;
+                    button.active = false;
                 }
             }
             if (row.empty())
@@ -626,7 +621,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             AxisSettings& ws_settings = m_pimpl->axes_settings.axes[Axis::WS];
             int sign = ws_settings.sign;
             size_t index = ws_settings.index;
-            wasd.rows.push_back(ButtonsMap({ {"W", {.key = ImGuiKey_W, .col = ad, .sign = -sign, .index = index}} }));
+            wasd.rows.push_back({{.alias = "W", .key = ImGuiKey_W, .col = ad, .sign = -sign, .index = index}});
         }
         if (ad)
         {
@@ -635,8 +630,8 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             size_t index = ws_settings.index;
             m_pimpl->sticks_to_axes.back().push_back(index);
             m_pimpl->sticks_values.back().push_back(0);
-            wasd.rows.push_back(ButtonsMap({ {"A", {.key = ImGuiKey_A, .col = 0, .sign = -sign, .index = index}},
-                                                   {"D", {.key = ImGuiKey_D, .col = 2, .sign = sign, .index = index}} }));
+            wasd.rows.push_back({{.alias = "A", .key = ImGuiKey_A, .col = 0, .sign = -sign, .index = index},
+                                 {.alias = "D", .key = ImGuiKey_D, .col = 2, .sign = sign, .index = index}});
         }
         else
         {
@@ -649,7 +644,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             size_t index = ws_settings.index;
             m_pimpl->sticks_to_axes.back().push_back(index);
             m_pimpl->sticks_values.back().push_back(0);
-            wasd.rows.push_back(ButtonsMap({ {"S", {.key = ImGuiKey_S, .col = ad, .sign = sign, .index = index}} }));
+            wasd.rows.push_back({{.alias = "S", .key = ImGuiKey_S, .col = ad, .sign = sign, .index = index}});
         }
 
         m_pimpl->sticks.push_back(std::make_pair(m_pimpl->axes_settings.wasd_label, wasd));
@@ -666,7 +661,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             AxisSettings& ws_settings = m_pimpl->axes_settings.axes[Axis::UP_DOWN];
             int sign = ws_settings.sign;
             size_t index = ws_settings.index;
-            arrows.rows.push_back(ButtonsMap({{"top", {.key = ImGuiKey_UpArrow, .col = left_right, .sign = -sign, .index = index}}}));
+            arrows.rows.push_back({{.alias = "top", .key = ImGuiKey_UpArrow, .col = left_right, .sign = -sign, .index = index}});
         }
         if (left_right)
         {
@@ -675,8 +670,8 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             size_t index = ws_settings.index;
             m_pimpl->sticks_to_axes.back().push_back(index);
             m_pimpl->sticks_values.back().push_back(0);
-            arrows.rows.push_back(ButtonsMap({{"left", {.key = ImGuiKey_LeftArrow, .col = 0, .sign = -sign, .index = index}},
-                                               {"right", {.key = ImGuiKey_RightArrow, .col = 2, .sign = sign, .index = index}}}));
+            arrows.rows.push_back({{.alias = "left", .key = ImGuiKey_LeftArrow, .col = 0, .sign = -sign, .index = index},
+                                   {.alias = "right", .key = ImGuiKey_RightArrow, .col = 2, .sign = sign, .index = index}});
         }
         else
         {
@@ -689,7 +684,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             size_t index = ws_settings.index;
             m_pimpl->sticks_to_axes.back().push_back(index);
             m_pimpl->sticks_values.back().push_back(0);
-            arrows.rows.push_back(ButtonsMap({ {"bottom", {.key = ImGuiKey_DownArrow, .col = left_right, .sign  = sign, .index = index}} }));
+            arrows.rows.push_back({{.alias = "bottom", .key = ImGuiKey_DownArrow, .col = left_right, .sign  = sign, .index = index}});
         }
 
         m_pimpl->sticks.push_back(std::make_pair(m_pimpl->axes_settings.arrows_label, arrows));
