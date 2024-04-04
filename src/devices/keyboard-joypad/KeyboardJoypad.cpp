@@ -105,6 +105,7 @@ struct Settings {
     int window_width = 1280;
     int window_height = 720;
     int buttons_per_row = 3;
+    bool allow_window_closing = false;
 
     bool parseFromConfigFile(yarp::os::Searchable& cfg)
     {
@@ -156,6 +157,16 @@ struct Settings {
         if (!parseInt(cfg, "buttons_per_row", 1, 100, buttons_per_row))
         {
             return false;
+        }
+
+        if (cfg.check("allow_window_closing"))
+        {
+            allow_window_closing = cfg.find("allow_window_closing").isNull() || cfg.find("allow_window_closing").asBool();
+        }
+        else
+        {
+            yCInfo(KEYBOARDJOYPAD) << "The key \"allow_window_closing\" is not present in the configuration file."
+                                   << "Using the default value:" << allow_window_closing;
         }
 
         return true;
@@ -333,6 +344,12 @@ public:
             }
 
             std::string button_with_alias = buttons_list->get(i).asString();
+
+            if (button_with_alias == "" || button_with_alias == "none")
+            {
+                continue;
+            }
+
             std::string button = button_with_alias;
             std::string alias = "";
 
@@ -352,6 +369,20 @@ public:
 
             std::transform(button.begin(), button.end(), button.begin(), ::toupper);
 
+            std::unordered_map<std::string, ImGuiKey> supportedButtons = {
+                {"SPACE", ImGuiKey_Space},
+                {"ENTER", ImGuiKey_Enter},
+                {"ESCAPE", ImGuiKey_Escape},
+                {"BACKSPACE", ImGuiKey_Backspace},
+                {"DELETE", ImGuiKey_Delete},
+                {"LEFT", ImGuiKey_LeftArrow},
+                {"RIGHT", ImGuiKey_RightArrow},
+                {"UP", ImGuiKey_UpArrow},
+                {"DOWN", ImGuiKey_DownArrow},
+                {"TAB", ImGuiKey_Tab}
+            };
+
+
             ButtonState newButton;
             newButton.index = i;
 
@@ -363,45 +394,9 @@ public:
             {
                 newButton.key = static_cast<ImGuiKey>(ImGuiKey_0 + button[0] - '0');
             }
-            else if (button == "SPACE")
+            else if (supportedButtons.find(button) != supportedButtons.end())
             {
-                newButton.key = ImGuiKey_Space;
-            }
-            else if (button == "ENTER")
-            {
-                newButton.key = ImGuiKey_Enter;
-            }
-            else if (button == "ESCAPE")
-            {
-                newButton.key = ImGuiKey_Escape;
-            }
-            else if (button == "BACKSPACE")
-            {
-                newButton.key = ImGuiKey_Backspace;
-            }
-            else if (button == "DELETE")
-            {
-                newButton.key = ImGuiKey_Delete;
-            }
-            else if (button == "LEFT")
-            {
-                newButton.key = ImGuiKey_LeftArrow;
-            }
-            else if (button == "RIGHT")
-            {
-                newButton.key = ImGuiKey_RightArrow;
-            }
-            else if (button == "UP")
-            {
-                newButton.key = ImGuiKey_UpArrow;
-            }
-            else if (button == "DOWN")
-            {
-                newButton.key = ImGuiKey_DownArrow;
-            }
-            else if (button == "TAB")
-            {
-                newButton.key = ImGuiKey_Tab;
+                newButton.key = supportedButtons[button];
             }
 
             if (newButton.key != ImGuiKey_COUNT && have_alias)
@@ -727,7 +722,10 @@ void yarp::dev::KeyboardJoypad::run()
     }
     {
         std::lock_guard<std::mutex> lock(m_pimpl->mutex);
-        m_pimpl->need_to_close = glfwWindowShouldClose(m_pimpl->window);
+        if (m_pimpl->settings.allow_window_closing)
+        {
+            m_pimpl->need_to_close = glfwWindowShouldClose(m_pimpl->window);
+        }
     }
     double period = 0;
     double desired_period = 0;
