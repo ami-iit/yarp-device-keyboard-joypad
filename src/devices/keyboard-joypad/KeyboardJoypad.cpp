@@ -36,7 +36,7 @@
 
 struct ButtonState {
     std::string alias;
-    ImGuiKey key = ImGuiKey_COUNT;
+    std::vector<ImGuiKey> keys;
     int col = 0;
     int sign = 1;
     size_t index = 0;
@@ -403,18 +403,19 @@ public:
 
             if (button.size() == 1 && button[0] >= 'A' && button[0] <= 'Z')
             {
-                newButton.key = static_cast<ImGuiKey>(ImGuiKey_A + button[0] - 'A');
+                newButton.keys.push_back(static_cast<ImGuiKey>(ImGuiKey_A + button[0] - 'A'));
             }
             else if (button.size() && button[0] >= '0' && button[0] <= '9')
             {
-                newButton.key = static_cast<ImGuiKey>(ImGuiKey_0 + button[0] - '0');
+                newButton.keys.push_back(static_cast<ImGuiKey>(ImGuiKey_0 + button[0] - '0'));
+                newButton.keys.push_back(static_cast<ImGuiKey>(ImGuiKey_Keypad0 + button[0] - '0'));
             }
             else if (supportedButtons.find(button) != supportedButtons.end())
             {
-                newButton.key = supportedButtons[button];
+                newButton.keys.push_back(supportedButtons[button]);
             }
 
-            if (newButton.key != ImGuiKey_COUNT && have_alias)
+            if (!newButton.keys.empty() && have_alias)
             {
                 alias += " (" + button + ")";
             }
@@ -451,23 +452,42 @@ public:
         for (auto& row : buttons_table.rows)
         {
             ImGui::TableNextRow();
+
             for (auto& button : row)
             {
                 ImGui::TableSetColumnIndex(button.col);
 
-                if (button.key != ImGuiKey_COUNT)
+                bool anyKeyPressed = false;
+                bool anyKeyReleased = false;
+                for (ImGuiKey key : button.keys)
                 {
-                    if (ImGui::IsKeyPressed(button.key))
+                    if (ImGui::IsKeyPressed(key))
                     {
-                        button.buttonPressed = true;
+                        anyKeyPressed = true;
+                    }
+                    if (ImGui::IsKeyReleased(key))
+                    {
+                        anyKeyReleased = true;
+                    }
+                }
+
+                if (anyKeyPressed)
+                {
+                    button.buttonPressed = true;
+                    if (!hold_button)
+                    {
                         button.active = true;
                     }
-                    else if (button.buttonPressed && ImGui::IsKeyReleased(button.key))
+                    else
                     {
-                        button.buttonPressed = false;
-                        if (!hold_button)
-                            button.active = false;
+                        button.active = !button.active;
                     }
+                }
+                else if (button.buttonPressed && anyKeyReleased)
+                {
+                    button.buttonPressed = false;
+                    if (!hold_button)
+                        button.active = false;
                 }
 
                 ImGuiStyle& style = ImGui::GetStyle();
@@ -633,7 +653,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             AxisSettings& ws_settings = m_pimpl->axes_settings.axes[Axis::WS];
             int sign = ws_settings.sign;
             size_t index = ws_settings.index;
-            wasd.rows.push_back({{.alias = "W", .key = ImGuiKey_W, .col = ad, .sign = -sign, .index = index}});
+            wasd.rows.push_back({{.alias = "W", .keys = {ImGuiKey_W}, .col = ad, .sign = -sign, .index = index}});
         }
         if (ad)
         {
@@ -642,8 +662,8 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             size_t index = ws_settings.index;
             m_pimpl->sticks_to_axes.back().push_back(index);
             m_pimpl->sticks_values.back().push_back(0);
-            wasd.rows.push_back({{.alias = "A", .key = ImGuiKey_A, .col = 0, .sign = -sign, .index = index},
-                                 {.alias = "D", .key = ImGuiKey_D, .col = 2, .sign = sign, .index = index}});
+            wasd.rows.push_back({{.alias = "A", .keys = {ImGuiKey_A}, .col = 0, .sign = -sign, .index = index},
+                                 {.alias = "D", .keys = {ImGuiKey_D}, .col = 2, .sign = sign, .index = index}});
         }
         else
         {
@@ -656,7 +676,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             size_t index = ws_settings.index;
             m_pimpl->sticks_to_axes.back().push_back(index);
             m_pimpl->sticks_values.back().push_back(0);
-            wasd.rows.push_back({{.alias = "S", .key = ImGuiKey_S, .col = ad, .sign = sign, .index = index}});
+            wasd.rows.push_back({{.alias = "S", .keys = {ImGuiKey_S}, .col = ad, .sign = sign, .index = index}});
         }
     }
 
@@ -672,7 +692,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             AxisSettings& ws_settings = m_pimpl->axes_settings.axes[Axis::UP_DOWN];
             int sign = ws_settings.sign;
             size_t index = ws_settings.index;
-            arrows.rows.push_back({{.alias = "top", .key = ImGuiKey_UpArrow, .col = left_right, .sign = -sign, .index = index}});
+            arrows.rows.push_back({{.alias = "top", .keys = {ImGuiKey_UpArrow}, .col = left_right, .sign = -sign, .index = index}});
         }
         if (left_right)
         {
@@ -681,8 +701,8 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             size_t index = ws_settings.index;
             m_pimpl->sticks_to_axes.back().push_back(index);
             m_pimpl->sticks_values.back().push_back(0);
-            arrows.rows.push_back({{.alias = "left", .key = ImGuiKey_LeftArrow, .col = 0, .sign = -sign, .index = index},
-                                   {.alias = "right", .key = ImGuiKey_RightArrow, .col = 2, .sign = sign, .index = index}});
+            arrows.rows.push_back({{.alias = "left", .keys = {ImGuiKey_LeftArrow}, .col = 0, .sign = -sign, .index = index},
+                                   {.alias = "right", .keys = {ImGuiKey_RightArrow}, .col = 2, .sign = sign, .index = index}});
         }
         else
         {
@@ -695,7 +715,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             size_t index = ws_settings.index;
             m_pimpl->sticks_to_axes.back().push_back(index);
             m_pimpl->sticks_values.back().push_back(0);
-            arrows.rows.push_back({{.alias = "bottom", .key = ImGuiKey_DownArrow, .col = left_right, .sign  = sign, .index = index}});
+            arrows.rows.push_back({{.alias = "bottom", .keys = {ImGuiKey_DownArrow}, .col = left_right, .sign  = sign, .index = index}});
         }
     }
 
