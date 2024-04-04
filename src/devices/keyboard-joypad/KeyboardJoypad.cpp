@@ -48,6 +48,7 @@ struct ButtonsTable
 {
     std::vector<std::vector<ButtonState>> rows;
     int numberOfColumns;
+    std::string name;
 };
 
 static bool parseFloat(yarp::os::Searchable& cfg, const std::string& key, float min_value, float max_value, float& value)
@@ -302,7 +303,7 @@ public:
     Settings settings;
     AxesSettings axes_settings;
 
-    std::vector<std::pair<std::string, ButtonsTable>> sticks;
+    std::vector<ButtonsTable> sticks;
     std::vector<std::vector<size_t>> sticks_to_axes;
     ButtonsTable buttons;
     std::vector<double> axes_values;
@@ -324,6 +325,7 @@ public:
 
     bool parseButtonsSettings(yarp::os::Searchable& cfg)
     {
+        buttons.name = "Buttons";
         if (!cfg.check("buttons"))
         {
             yCInfo(KEYBOARDJOYPAD) << "The key \"buttons\" is not present in the configuration file. No buttons will be created.";
@@ -423,7 +425,7 @@ public:
         return true;
     }
 
-    void renderButtonsTable(const std::string& name, ButtonsTable& buttons_table, const ImVec2& position, bool forceReset, std::vector<double>& values)
+    void renderButtonsTable(ButtonsTable& buttons_table, const ImVec2& position, bool forceReset, std::vector<double>& values)
     {
 
         //Define the size of the buttons
@@ -431,10 +433,10 @@ public:
 
         const int& n_cols = buttons_table.numberOfColumns;
         ImGui::SetNextWindowPos(position, ImGuiCond_FirstUseEver);
-        ImGui::Begin(name.c_str(), 0, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
+        ImGui::Begin(buttons_table.name.c_str(), 0, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
         ImGui::SetWindowFontScale(settings.font_multiplier);
 
-        ImGui::BeginTable(name.c_str(), n_cols, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_SizingMask_);
+        ImGui::BeginTable(buttons_table.name.c_str(), n_cols, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_SizingMask_);
 
         bool hold_button = ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && forceReset;
         for (auto& row : buttons_table.rows)
@@ -614,7 +616,8 @@ bool yarp::dev::KeyboardJoypad::threadInit()
     {
         m_pimpl->sticks_to_axes.emplace_back();
         m_pimpl->sticks_values.emplace_back();
-        ButtonsTable wasd;
+        ButtonsTable& wasd = m_pimpl->sticks.emplace_back();
+        wasd.name = m_pimpl->axes_settings.wasd_label;
         wasd.numberOfColumns = ad ? 3 : 1; //Number of columns
         if (ws)
         {
@@ -646,15 +649,14 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             m_pimpl->sticks_values.back().push_back(0);
             wasd.rows.push_back({{.alias = "S", .key = ImGuiKey_S, .col = ad, .sign = sign, .index = index}});
         }
-
-        m_pimpl->sticks.push_back(std::make_pair(m_pimpl->axes_settings.wasd_label, wasd));
     }
 
     if (up_down || left_right)
     {
         m_pimpl->sticks_to_axes.emplace_back();
         m_pimpl->sticks_values.emplace_back();
-        ButtonsTable arrows;
+        ButtonsTable& arrows = m_pimpl->sticks.emplace_back();
+        arrows.name = m_pimpl->axes_settings.arrows_label;
         arrows.numberOfColumns = left_right ? 3 : 1; //Number of columns
         if (up_down)
         {
@@ -686,8 +688,6 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             m_pimpl->sticks_values.back().push_back(0);
             arrows.rows.push_back({{.alias = "bottom", .key = ImGuiKey_DownArrow, .col = left_right, .sign  = sign, .index = index}});
         }
-
-        m_pimpl->sticks.push_back(std::make_pair(m_pimpl->axes_settings.arrows_label, arrows));
     }
 
     return true;
@@ -756,16 +756,16 @@ void yarp::dev::KeyboardJoypad::run()
         for (auto& stick : m_pimpl->sticks)
         {
             position.y = m_pimpl->settings.button_size; //Keep the sticks on the save level
-            m_pimpl->renderButtonsTable(stick.first, stick.second, position, false, m_pimpl->axes_values);
-            position.x += (stick.second.numberOfColumns + 1) * m_pimpl->settings.button_size; // Move the next table to the right (n columns + 1 space)
-            position.y += (stick.second.rows.size() + 1) * m_pimpl->settings.button_size; // Move the next table down (n rows + 1 space)
+            m_pimpl->renderButtonsTable(stick, position, false, m_pimpl->axes_values);
+            position.x += (stick.numberOfColumns + 1) * m_pimpl->settings.button_size; // Move the next table to the right (n columns + 1 space)
+            position.y += (stick.rows.size() + 1) * m_pimpl->settings.button_size; // Move the next table down (n rows + 1 space)
             button_table_height = std::max(button_table_height, position.y);
         }
 
         if (!m_pimpl->buttons_values.empty())
         {
             position.y = m_pimpl->settings.button_size; //Keep the buttons on the save level of the sticks
-            m_pimpl->renderButtonsTable("Buttons", m_pimpl->buttons, position, true, m_pimpl->buttons_values);
+            m_pimpl->renderButtonsTable(m_pimpl->buttons, position, true, m_pimpl->buttons_values);
         }
 
         position.x = m_pimpl->settings.button_size; //Reset the x position
