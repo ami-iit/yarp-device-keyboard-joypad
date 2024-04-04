@@ -84,7 +84,7 @@ static bool parseInt(yarp::os::Searchable& cfg, const std::string& key, int min_
         return true;
     }
 
-    if (!cfg.find(key).isInt64())
+    if (!cfg.find(key).isInt64() && !cfg.find(key).isInt32())
     {
         yCError(KEYBOARDJOYPAD) << "The value of " << key << " is not an integer";
         return false;
@@ -343,13 +343,23 @@ public:
         int col = 0;
         for (size_t i = 0; i < buttons_list->size(); i++)
         {
+            std::string button_with_alias;
             if (!buttons_list->get(i).isString())
             {
-                yCError(KEYBOARDJOYPAD) << "The value at index" << i << "of the buttons list is not a string.";
-                return false;
+                if (buttons_list->get(i).isInt64() || buttons_list->get(i).isInt32())
+                {
+                    button_with_alias = std::to_string(buttons_list->get(i).asInt64());
+                }
+                else
+                {
+                    yCError(KEYBOARDJOYPAD) << "The value at index" << i << "of the buttons list is not a string.";
+                    return false;
+                }
             }
-
-            std::string button_with_alias = buttons_list->get(i).asString();
+            else
+            {
+                button_with_alias = buttons_list->get(i).asString();
+            }
 
             if (button_with_alias == "" || button_with_alias == "none")
             {
