@@ -39,14 +39,87 @@ struct ButtonValue
     size_t index = 0;
 };
 
+enum class ButtonType
+{
+    REGULAR,
+    TOGGLE,
+};
+
 
 struct ButtonState {
     std::string alias;
+    ButtonType type{ ButtonType::REGULAR };
     std::vector<ImGuiKey> keys;
     std::vector<ButtonValue> values;
-    int col = 0;
-    bool active = false;
-    bool buttonPressed = false;
+    int col{ 0 };
+    bool active{ false };
+    bool buttonPressed{ false };
+
+    void render(const ImVec4& button_active_color, const ImVec4& button_inactive_color, const ImVec2& buttonSize, bool hold_active, std::vector<double>& outputValues)
+    {
+        bool regularButton = type == ButtonType::REGULAR;
+        bool toggleButton = type == ButtonType::TOGGLE;
+        bool anyKeyPressed = false;
+        bool anyKeyReleased = false;
+        for (ImGuiKey key : keys)
+        {
+            if (ImGui::IsKeyPressed(key))
+            {
+                anyKeyPressed = true;
+            }
+            if (ImGui::IsKeyReleased(key))
+            {
+                anyKeyReleased = true;
+            }
+        }
+
+        if (anyKeyPressed)
+        {
+            buttonPressed = true;
+            if (toggleButton || (regularButton && !hold_active))
+            {
+                active = true;
+            }
+            else
+            {
+                active = !active;
+            }
+        }
+        else if (buttonPressed && anyKeyReleased)
+        {
+            buttonPressed = false;
+            if (toggleButton || (regularButton && !hold_active))
+                active = false;
+        }
+
+        ImGuiStyle& style = ImGui::GetStyle();
+        const ImVec4& buttonColor = active ? button_active_color : button_inactive_color;
+        style.Colors[ImGuiCol_Button] = buttonColor;
+        style.Colors[ImGuiCol_ButtonHovered] = buttonColor;
+        style.Colors[ImGuiCol_ButtonActive] = buttonColor;
+
+        // Create a button
+        bool buttonReleased = ImGui::Button(alias.c_str(), buttonSize);
+        bool buttonKeptPressed = ImGui::IsItemActive();
+
+        if (buttonReleased && (toggleButton || regularButton && hold_active))
+        {
+            active = !active; //Toggle the button
+        }
+        else if (regularButton && buttonKeptPressed && !hold_active) //The button is clicked and is not a toggling button
+        {
+            active = true;
+        }
+        else if (regularButton && !buttonPressed && !hold_active) //The button is not clicked and is not a toggling button
+        {
+            active = false;
+        }
+
+        for (auto& value : values)
+        {
+            outputValues[value.index] += value.sign * active;
+        }
+    }
 };
 
 struct ButtonsTable
@@ -314,6 +387,8 @@ public:
     std::vector<ButtonsTable> sticks;
     std::vector<std::vector<size_t>> sticks_to_axes;
     ButtonsTable buttons;
+    ButtonState ctrl_button;
+    std::vector<double> ctrl_value;
     std::vector<double> axes_values;
     std::vector<std::vector<double>> sticks_values;
     std::vector<double> buttons_values;
@@ -439,24 +514,30 @@ public:
             buttons.rows.back().push_back(newButton);
         }
         buttons_values.resize(buttons_list->size(), 0.0);
+        if (!buttons.rows.empty())
+        {
+            ctrl_button = {.alias = "Hold (Ctrl)", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_LeftCtrl, ImGuiKey_RightCtrl}, .values = {{.sign = 1, .index = 0}} };
+            ctrl_value.resize(1, 0.0);
+        }
 
         return true;
     }
 
-    void renderButtonsTable(ButtonsTable& buttons_table, const ImVec2& position, bool forceReset, std::vector<double>& values)
+    void prepareWindow(const ImVec2& position, const std::string& name)
     {
+        ImGui::SetNextWindowPos(position, ImGuiCond_FirstUseEver);
+        ImGui::Begin(name.c_str(), 0, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
+        ImGui::SetWindowFontScale(settings.font_multiplier);
+    }
 
+    void renderButtonsTable(ButtonsTable& buttons_table, bool hold_active, std::vector<double>& values) const
+    {
         //Define the size of the buttons
         ImVec2 buttonSize(settings.button_size, settings.button_size);
-
         const int& n_cols = buttons_table.numberOfColumns;
-        ImGui::SetNextWindowPos(position, ImGuiCond_FirstUseEver);
-        ImGui::Begin(buttons_table.name.c_str(), 0, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
-        ImGui::SetWindowFontScale(settings.font_multiplier);
 
         ImGui::BeginTable(buttons_table.name.c_str(), n_cols, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_SizingMask_);
 
-        bool hold_button = ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && forceReset;
         for (auto& row : buttons_table.rows)
         {
             ImGui::TableNextRow();
@@ -465,66 +546,7 @@ public:
             {
                 ImGui::TableSetColumnIndex(button.col);
 
-                bool anyKeyPressed = false;
-                bool anyKeyReleased = false;
-                for (ImGuiKey key : button.keys)
-                {
-                    if (ImGui::IsKeyPressed(key))
-                    {
-                        anyKeyPressed = true;
-                    }
-                    if (ImGui::IsKeyReleased(key))
-                    {
-                        anyKeyReleased = true;
-                    }
-                }
-
-                if (anyKeyPressed)
-                {
-                    button.buttonPressed = true;
-                    if (!hold_button)
-                    {
-                        button.active = true;
-                    }
-                    else
-                    {
-                        button.active = !button.active;
-                    }
-                }
-                else if (button.buttonPressed && anyKeyReleased)
-                {
-                    button.buttonPressed = false;
-                    if (!hold_button)
-                        button.active = false;
-                }
-
-                ImGuiStyle& style = ImGui::GetStyle();
-                ImVec4& buttonColor = button.active ? button_active_color : button_inactive_color;
-                style.Colors[ImGuiCol_Button] = buttonColor;
-                style.Colors[ImGuiCol_ButtonHovered] = buttonColor;
-                style.Colors[ImGuiCol_ButtonActive] = buttonColor;
-
-                for (auto& value : button.values)
-                {
-                    values[value.index] += value.sign * button.active;
-                }
-
-                // Create a button
-                bool buttonReleased = ImGui::Button(button.alias.c_str(), buttonSize);
-                bool buttonClicked = ImGui::IsItemActive();
-
-                if (buttonReleased && !forceReset)
-                {
-                    button.active = !button.active; //Toggle the button
-                }
-                else if (forceReset && buttonClicked) //The button is clicked and is not a toggling button
-                {
-                    button.active = true;
-                }
-                else if (forceReset && !button.buttonPressed && !hold_button) //The button is not clicked and is not a toggling button
-                {
-                    button.active = false;
-                }
+                button.render(button_active_color, button_inactive_color, buttonSize, hold_active, values);
             }
             if (row.empty())
             {
@@ -533,7 +555,6 @@ public:
             }
         }
         ImGui::EndTable();
-        ImGui::End();
     }
 
 };
@@ -665,7 +686,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             {
                 values.push_back({.sign = -ws_settings.sign, .index = ws_settings.index});
             }
-            wasd.rows.push_back({{.alias = "W", .keys = {ImGuiKey_W}, .values = values, .col = ad}});
+            wasd.rows.push_back({{.alias = "W", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_W}, .values = values, .col = ad}});
         }
         if (ad)
         {
@@ -682,8 +703,8 @@ bool yarp::dev::KeyboardJoypad::threadInit()
                 m_pimpl->sticks_values.back().push_back(0);
             }
 
-            wasd.rows.push_back({{.alias = "A", .keys = {ImGuiKey_A}, .values = a_values, .col = 0},
-                                 {.alias = "D", .keys = {ImGuiKey_D}, .values = d_values, .col = 2}});
+            wasd.rows.push_back({{.alias = "A", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_A}, .values = a_values, .col = 0},
+                                 {.alias = "D", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_D}, .values = d_values, .col = 2}});
         }
         else
         {
@@ -702,7 +723,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
                 m_pimpl->sticks_values.back().push_back(0);
             }
 
-            wasd.rows.push_back({{.alias = "S", .keys = {ImGuiKey_S}, .values = values, .col = ad}});
+            wasd.rows.push_back({{.alias = "S", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_S}, .values = values, .col = ad}});
         }
     }
 
@@ -720,7 +741,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
             {
                 values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
             }
-            arrows.rows.push_back({{.alias = "top", .keys = {ImGuiKey_UpArrow}, .values = values, .col = left_right}});
+            arrows.rows.push_back({{.alias = "top", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_UpArrow}, .values = values, .col = left_right}});
         }
         if (left_right)
         {
@@ -736,8 +757,8 @@ bool yarp::dev::KeyboardJoypad::threadInit()
                 m_pimpl->sticks_to_axes.back().push_back(l_values.front().index);
                 m_pimpl->sticks_values.back().push_back(0);
             }
-            arrows.rows.push_back({{.alias = "left", .keys = {ImGuiKey_LeftArrow}, .values = l_values, .col = 0},
-                                   {.alias = "right", .keys = {ImGuiKey_RightArrow}, .values = r_values,.col = 2}});
+            arrows.rows.push_back({{.alias = "left", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_LeftArrow}, .values = l_values, .col = 0},
+                                   {.alias = "right", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_RightArrow}, .values = r_values,.col = 2}});
         }
         else
         {
@@ -755,7 +776,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
                 m_pimpl->sticks_to_axes.back().push_back(values.front().index);
                 m_pimpl->sticks_values.back().push_back(0);
             }
-            arrows.rows.push_back({{.alias = "bottom", .keys = {ImGuiKey_DownArrow}, .values = values, .col = left_right}});
+            arrows.rows.push_back({{.alias = "bottom", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_DownArrow}, .values = values, .col = left_right}});
         }
     }
 
@@ -820,26 +841,25 @@ void yarp::dev::KeyboardJoypad::run()
             value = 0;
         }
 
+        for (auto& value : m_pimpl->ctrl_value)
+        {
+            value = 0;
+        }
+
         ImVec2 position(m_pimpl->settings.button_size, m_pimpl->settings.button_size);
         float button_table_height = position.y;
         for (auto& stick : m_pimpl->sticks)
         {
             position.y = m_pimpl->settings.button_size; //Keep the sticks on the save level
-            m_pimpl->renderButtonsTable(stick, position, false, m_pimpl->axes_values);
+            m_pimpl->prepareWindow(position, stick.name);
+            m_pimpl->renderButtonsTable(stick, false, m_pimpl->axes_values);
+            ImGui::End();
             position.x += (stick.numberOfColumns + 1) * m_pimpl->settings.button_size; // Move the next table to the right (n columns + 1 space)
             position.y += (stick.rows.size() + 1) * m_pimpl->settings.button_size; // Move the next table down (n rows + 1 space)
             button_table_height = std::max(button_table_height, position.y);
         }
 
-        if (!m_pimpl->buttons_values.empty())
-        {
-            position.y = m_pimpl->settings.button_size; //Keep the buttons on the save level of the sticks
-            m_pimpl->renderButtonsTable(m_pimpl->buttons, position, true, m_pimpl->buttons_values);
-        }
-
-        position.x = m_pimpl->settings.button_size; //Reset the x position
-        position.y = button_table_height; //Move the next table down
-
+        //Update sticks values from axes values
         for (size_t i = 0; i < m_pimpl->sticks_to_axes.size(); ++i)
         {
             for (size_t j = 0; j < m_pimpl->sticks_to_axes[i].size(); j++)
@@ -848,9 +868,26 @@ void yarp::dev::KeyboardJoypad::run()
             }
         }
 
-        ImGui::SetNextWindowPos(position, ImGuiCond_FirstUseEver);
-        ImGui::Begin("Settings", 0, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
-        ImGui::SetWindowFontScale(m_pimpl->settings.font_multiplier);
+        if (!m_pimpl->buttons.rows.empty())
+        {
+            position.y = m_pimpl->settings.button_size; //Keep the buttons on the save level of the sticks
+            m_pimpl->prepareWindow(position, m_pimpl->buttons.name);
+            ImGui::BeginTable("Buttons_layout", 1, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_SizingMask_ | ImGuiTableFlags_BordersInner);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            m_pimpl->ctrl_button.render(m_pimpl->button_active_color, m_pimpl->button_inactive_color, ImVec2(m_pimpl->settings.button_size, m_pimpl->settings.button_size), false, m_pimpl->ctrl_value);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            bool hold_active = m_pimpl->ctrl_value.front() > 0;
+            m_pimpl->renderButtonsTable(m_pimpl->buttons, hold_active, m_pimpl->buttons_values);
+            ImGui::EndTable();
+            ImGui::End();
+        }
+
+        position.x = m_pimpl->settings.button_size; //Reset the x position
+        position.y = button_table_height; //Move the next table down
+
+        m_pimpl->prepareWindow(position, "Settings");
         ImGuiIO& io = ImGui::GetIO();
         ImGui::Text("Application average %.1f ms/frame (%.1f FPS)", io.DeltaTime * 1000.0f, io.Framerate);
 
