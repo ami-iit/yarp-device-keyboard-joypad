@@ -32,7 +32,7 @@ jobs:
         # Compilation related dependencies
         mamba install cmake compilers make ninja pkg-config
         # Actual dependencies
-        mamba install glew glfw eigen yarp imgui
+        mamba install glew glfw yarp imgui
 
     - name: OpenGL [Linux]
       if: contains(matrix.os, 'ubuntu')
