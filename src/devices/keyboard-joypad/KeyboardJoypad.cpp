@@ -33,13 +33,18 @@
 #include <KeyboardJoypad.h>
 #include <KeyboardJoypadLogComponent.h>
 
+struct ButtonValue
+{
+    int sign = 1;
+    size_t index = 0;
+};
+
 
 struct ButtonState {
     std::string alias;
     std::vector<ImGuiKey> keys;
+    std::vector<ButtonValue> values;
     int col = 0;
-    int sign = 1;
-    size_t index = 0;
     bool active = false;
     bool buttonPressed = false;
 };
@@ -60,7 +65,7 @@ static bool parseFloat(yarp::os::Searchable& cfg, const std::string& key, float 
         return true;
     }
 
-    if (!cfg.find(key).isFloat64() && !cfg.find(key).isInt64())
+    if (!cfg.find(key).isFloat64() && !cfg.find(key).isInt64() && !cfg.find(key).isInt32())
     {
         yCError(KEYBOARDJOYPAD) << "The value of " << key << " is not a float";
         return false;
@@ -194,7 +199,8 @@ struct AxisSettings
 
 struct AxesSettings
 {
-    std::unordered_map<Axis, AxisSettings> axes;
+    std::unordered_map<Axis, std::vector<AxisSettings>> axes;
+    size_t number_of_axes = 0;
 
     std::string wasd_label = "WASD";
     std::string arrows_label = "Arrows";
@@ -204,10 +210,11 @@ struct AxesSettings
         if (!cfg.check("axes"))
         {
             yCInfo(KEYBOARDJOYPAD) << "The key \"axes\" is not present in the configuration file. Enabling both wasd and the arrows.";
-            axes[Axis::AD] = {+1, 0};
-            axes[Axis::WS] = {+1, 1};
-            axes[Axis::LEFT_RIGHT] = {+1, 2};
-            axes[Axis::UP_DOWN] = {+1, 3};
+            axes[Axis::AD].push_back({+1, 0});
+            axes[Axis::WS].push_back({+1, 1});
+            axes[Axis::LEFT_RIGHT].push_back({+1, 2});
+            axes[Axis::UP_DOWN].push_back({+1, 3});
+            number_of_axes = 4;
             return true;
         }
 
@@ -241,28 +248,29 @@ struct AxesSettings
 
             if (axis == "ws")
             {
-                axes[Axis::WS] = {sign, i};
+                axes[Axis::WS].push_back({sign, i});
             }
             else if (axis == "ad")
             {
-                axes[Axis::AD] = {sign, i};
+                axes[Axis::AD].push_back({sign, i});
             }
             else if (axis == "up_down")
             {
-                axes[Axis::UP_DOWN] = {sign, i};
+                axes[Axis::UP_DOWN].push_back({sign, i});
             }
             else if (axis == "left_right")
             {
-                axes[Axis::LEFT_RIGHT] = {sign, i};
+                axes[Axis::LEFT_RIGHT].push_back({sign, i});
             }
-            else if (axis != "")
+            else if (axis != "" && axis != "none")
             {
                 yCError(KEYBOARDJOYPAD) << "The value of the axes list (" << axis << ") is not a valid axis."
                                         << "Allowed values(\"ws\", \"ad\", \"up_down\", \"left_right\","
-                                        << "eventually with a + or - as prefix, and \"\")";
+                                        << "eventually with a + or - as prefix, \"none\" and \"\")";
                 return false;
             }
         }
+        number_of_axes = axes_list->size();
 
         if (cfg.check("wasd_label"))
         {
@@ -399,7 +407,7 @@ public:
 
 
             ButtonState newButton;
-            newButton.index = i;
+            newButton.values.push_back({.sign = 1, .index = i});
 
             if (button.size() == 1 && button[0] >= 'A' && button[0] <= 'Z')
             {
@@ -496,7 +504,10 @@ public:
                 style.Colors[ImGuiCol_ButtonHovered] = buttonColor;
                 style.Colors[ImGuiCol_ButtonActive] = buttonColor;
 
-                values[button.index] += button.sign * button.active;
+                for (auto& value : button.values)
+                {
+                    values[value.index] += value.sign * button.active;
+                }
 
                 // Create a button
                 bool buttonReleased = ImGui::Button(button.alias.c_str(), buttonSize);
@@ -636,9 +647,8 @@ bool yarp::dev::KeyboardJoypad::threadInit()
     int ad = m_pimpl->axes_settings.axes.find(Axis::AD) != m_pimpl->axes_settings.axes.end();
     int up_down = m_pimpl->axes_settings.axes.find(Axis::UP_DOWN) != m_pimpl->axes_settings.axes.end();
     int left_right = m_pimpl->axes_settings.axes.find(Axis::LEFT_RIGHT) != m_pimpl->axes_settings.axes.end();
-    int number_of_axes = ws + ad + up_down + left_right;
 
-    m_pimpl->axes_values.resize(static_cast<size_t>(number_of_axes), 0.0);
+    m_pimpl->axes_values.resize(static_cast<size_t>(m_pimpl->axes_settings.number_of_axes), 0.0);
     m_pimpl->sticks_to_axes.clear();
 
     if (ws || ad)
@@ -650,20 +660,30 @@ bool yarp::dev::KeyboardJoypad::threadInit()
         wasd.numberOfColumns = ad ? 3 : 1; //Number of columns
         if (ws)
         {
-            AxisSettings& ws_settings = m_pimpl->axes_settings.axes[Axis::WS];
-            int sign = ws_settings.sign;
-            size_t index = ws_settings.index;
-            wasd.rows.push_back({{.alias = "W", .keys = {ImGuiKey_W}, .col = ad, .sign = -sign, .index = index}});
+            std::vector<ButtonValue> values;
+            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::WS])
+            {
+                values.push_back({.sign = -ws_settings.sign, .index = ws_settings.index});
+            }
+            wasd.rows.push_back({{.alias = "W", .keys = {ImGuiKey_W}, .values = values, .col = ad}});
         }
         if (ad)
         {
-            AxisSettings& ws_settings = m_pimpl->axes_settings.axes[Axis::AD];
-            int sign = ws_settings.sign;
-            size_t index = ws_settings.index;
-            m_pimpl->sticks_to_axes.back().push_back(index);
-            m_pimpl->sticks_values.back().push_back(0);
-            wasd.rows.push_back({{.alias = "A", .keys = {ImGuiKey_A}, .col = 0, .sign = -sign, .index = index},
-                                 {.alias = "D", .keys = {ImGuiKey_D}, .col = 2, .sign = sign, .index = index}});
+            std::vector<ButtonValue> a_values;
+            std::vector<ButtonValue> d_values;
+            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::AD])
+            {
+                a_values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
+                d_values.push_back({ .sign =  ws_settings.sign, .index = ws_settings.index });
+            }
+            if (a_values.size() > 0)
+            {
+                m_pimpl->sticks_to_axes.back().push_back(a_values.front().index);
+                m_pimpl->sticks_values.back().push_back(0);
+            }
+
+            wasd.rows.push_back({{.alias = "A", .keys = {ImGuiKey_A}, .values = a_values, .col = 0},
+                                 {.alias = "D", .keys = {ImGuiKey_D}, .values = d_values, .col = 2}});
         }
         else
         {
@@ -671,12 +691,18 @@ bool yarp::dev::KeyboardJoypad::threadInit()
         }
         if (ws)
         {
-            AxisSettings& ws_settings = m_pimpl->axes_settings.axes[Axis::WS];
-            int sign = ws_settings.sign;
-            size_t index = ws_settings.index;
-            m_pimpl->sticks_to_axes.back().push_back(index);
-            m_pimpl->sticks_values.back().push_back(0);
-            wasd.rows.push_back({{.alias = "S", .keys = {ImGuiKey_S}, .col = ad, .sign = sign, .index = index}});
+            std::vector<ButtonValue> values;
+            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::WS])
+            {
+                values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
+            }
+            if (values.size() > 0)
+            {
+                m_pimpl->sticks_to_axes.back().push_back(values.front().index);
+                m_pimpl->sticks_values.back().push_back(0);
+            }
+
+            wasd.rows.push_back({{.alias = "S", .keys = {ImGuiKey_S}, .values = values, .col = ad}});
         }
     }
 
@@ -689,20 +715,29 @@ bool yarp::dev::KeyboardJoypad::threadInit()
         arrows.numberOfColumns = left_right ? 3 : 1; //Number of columns
         if (up_down)
         {
-            AxisSettings& ws_settings = m_pimpl->axes_settings.axes[Axis::UP_DOWN];
-            int sign = ws_settings.sign;
-            size_t index = ws_settings.index;
-            arrows.rows.push_back({{.alias = "top", .keys = {ImGuiKey_UpArrow}, .col = left_right, .sign = -sign, .index = index}});
+            std::vector<ButtonValue> values;
+            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::UP_DOWN])
+            {
+                values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
+            }
+            arrows.rows.push_back({{.alias = "top", .keys = {ImGuiKey_UpArrow}, .values = values, .col = left_right}});
         }
         if (left_right)
         {
-            AxisSettings& ws_settings = m_pimpl->axes_settings.axes[Axis::LEFT_RIGHT];
-            int sign = ws_settings.sign;
-            size_t index = ws_settings.index;
-            m_pimpl->sticks_to_axes.back().push_back(index);
-            m_pimpl->sticks_values.back().push_back(0);
-            arrows.rows.push_back({{.alias = "left", .keys = {ImGuiKey_LeftArrow}, .col = 0, .sign = -sign, .index = index},
-                                   {.alias = "right", .keys = {ImGuiKey_RightArrow}, .col = 2, .sign = sign, .index = index}});
+            std::vector<ButtonValue> l_values;
+            std::vector<ButtonValue> r_values;
+            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::LEFT_RIGHT])
+            {
+                l_values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
+                r_values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
+            }
+            if (l_values.size() > 0)
+            {
+                m_pimpl->sticks_to_axes.back().push_back(l_values.front().index);
+                m_pimpl->sticks_values.back().push_back(0);
+            }
+            arrows.rows.push_back({{.alias = "left", .keys = {ImGuiKey_LeftArrow}, .values = l_values, .col = 0},
+                                   {.alias = "right", .keys = {ImGuiKey_RightArrow}, .values = r_values,.col = 2}});
         }
         else
         {
@@ -710,12 +745,17 @@ bool yarp::dev::KeyboardJoypad::threadInit()
         }
         if (up_down)
         {
-            AxisSettings& ws_settings = m_pimpl->axes_settings.axes[Axis::UP_DOWN];
-            int sign = ws_settings.sign;
-            size_t index = ws_settings.index;
-            m_pimpl->sticks_to_axes.back().push_back(index);
-            m_pimpl->sticks_values.back().push_back(0);
-            arrows.rows.push_back({{.alias = "bottom", .keys = {ImGuiKey_DownArrow}, .col = left_right, .sign  = sign, .index = index}});
+            std::vector<ButtonValue> values;
+            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::UP_DOWN])
+            {
+                values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
+            }
+            if (values.size() > 0)
+            {
+                m_pimpl->sticks_to_axes.back().push_back(values.front().index);
+                m_pimpl->sticks_values.back().push_back(0);
+            }
+            arrows.rows.push_back({{.alias = "bottom", .keys = {ImGuiKey_DownArrow}, .values = values, .col = left_right}});
         }
     }
 
