@@ -16,6 +16,7 @@ jobs:
       matrix:
         build_type: [Release]
         os: [ubuntu-latest, windows-2019]
+        imgui: [mamba, vendored]
       fail-fast: false
 
     steps:
@@ -32,7 +33,13 @@ jobs:
         # Compilation related dependencies
         mamba install cmake compilers make ninja pkg-config
         # Actual dependencies
-        mamba install glew glfw yarp imgui
+        mamba install glew glfw yarp
+
+    - name: Imgui
+      if: contains(matrix.imgui, 'mamba')
+      shell: bash -l {0}
+      run: |
+        mamba install imgui
 
     - name: OpenGL [Linux]
       if: contains(matrix.os, 'ubuntu')
