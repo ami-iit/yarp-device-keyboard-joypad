@@ -102,7 +102,7 @@ struct ButtonState {
         bool buttonReleased = ImGui::Button(alias.c_str(), buttonSize);
         bool buttonKeptPressed = ImGui::IsItemActive();
 
-        if (buttonReleased && (toggleButton || regularButton && hold_active))
+        if (buttonReleased && (toggleButton || (regularButton && hold_active)))
         {
             active = !active; //Toggle the button
         }
@@ -426,12 +426,12 @@ public:
         int col = 0;
         for (size_t i = 0; i < buttons_list->size(); i++)
         {
-            std::string button_with_alias;
+            std::string buttons_with_alias;
             if (!buttons_list->get(i).isString())
             {
                 if (buttons_list->get(i).isInt64() || buttons_list->get(i).isInt32())
                 {
-                    button_with_alias = std::to_string(buttons_list->get(i).asInt64());
+                    buttons_with_alias = std::to_string(buttons_list->get(i).asInt64());
                 }
                 else
                 {
@@ -441,31 +441,45 @@ public:
             }
             else
             {
-                button_with_alias = buttons_list->get(i).asString();
+                buttons_with_alias = buttons_list->get(i).asString();
             }
 
-            if (button_with_alias == "" || button_with_alias == "none")
+            if (buttons_with_alias == "" || buttons_with_alias == "none")
             {
                 continue;
             }
 
-            std::string button = button_with_alias;
+            std::string buttons_keys = buttons_with_alias;
             std::string alias = "";
 
-            size_t pos = button_with_alias.find(':');
+            size_t pos = buttons_with_alias.find(':');
             bool have_alias = false;
             if (pos != std::string::npos)
             {
-                button = button_with_alias.substr(0, pos);
-                alias = button_with_alias.substr(pos + 1);
+                buttons_keys = buttons_with_alias.substr(0, pos);
+                alias = buttons_with_alias.substr(pos + 1);
                 have_alias = true;
             }
             else
             {
-                alias = button;
+                alias = buttons_keys;
             }
 
-            std::transform(button.begin(), button.end(), button.begin(), ::toupper);
+            std::transform(buttons_keys.begin(), buttons_keys.end(), buttons_keys.begin(), ::toupper);
+
+            std::vector<std::string> buttons_key_list;
+            std::string delimiter = "-";
+            pos = buttons_keys.find(delimiter);
+            while (pos != std::string::npos)
+            {
+                buttons_key_list.push_back(buttons_keys.substr(0, pos));
+                buttons_keys.erase(0, pos + delimiter.length());
+                pos = buttons_keys.find(delimiter);
+            }
+            buttons_key_list.push_back(buttons_keys);
+
+            ButtonState newButton;
+            newButton.values.push_back({ .sign = 1, .index = i });
 
             std::unordered_map<std::string, ImGuiKey> supportedButtons = {
                 {"SPACE", ImGuiKey_Space},
@@ -480,27 +494,50 @@ public:
                 {"TAB", ImGuiKey_Tab}
             };
 
+            std::string parsedButtons;
+            for (auto& button : buttons_key_list)
+            {
+                yError() << "Button: " << button;
+                bool parsed = true;
+                if (button.size() == 1 && button[0] >= 'A' && button[0] <= 'Z')
+                {
+                    newButton.keys.push_back(static_cast<ImGuiKey>(ImGuiKey_A + button[0] - 'A'));
+                }
+                else if (button.size() && button[0] >= '0' && button[0] <= '9')
+                {
+                    newButton.keys.push_back(static_cast<ImGuiKey>(ImGuiKey_0 + button[0] - '0'));
+                    newButton.keys.push_back(static_cast<ImGuiKey>(ImGuiKey_Keypad0 + button[0] - '0'));
+                }
+                else if (supportedButtons.find(button) != supportedButtons.end())
+                {
+                    newButton.keys.push_back(supportedButtons[button]);
+                }
+                else
+                {
+                    parsed = false;
+                }
 
-            ButtonState newButton;
-            newButton.values.push_back({.sign = 1, .index = i});
+                if (parsed)
+                {
+                    if (!parsedButtons.empty())
+                    {
+                        parsedButtons += ", " + button;
+                    }
+                    else
+                    {
+                        parsedButtons = button;
+                    }
+                }
+            }
+            yError() << "Parsed buttons: " << parsedButtons;
 
-            if (button.size() == 1 && button[0] >= 'A' && button[0] <= 'Z')
+            if (!parsedButtons.empty() && have_alias)
             {
-                newButton.keys.push_back(static_cast<ImGuiKey>(ImGuiKey_A + button[0] - 'A'));
+                alias += " (" + parsedButtons + ")";
             }
-            else if (button.size() && button[0] >= '0' && button[0] <= '9')
+            else if (!parsedButtons.empty() && !have_alias)
             {
-                newButton.keys.push_back(static_cast<ImGuiKey>(ImGuiKey_0 + button[0] - '0'));
-                newButton.keys.push_back(static_cast<ImGuiKey>(ImGuiKey_Keypad0 + button[0] - '0'));
-            }
-            else if (supportedButtons.find(button) != supportedButtons.end())
-            {
-                newButton.keys.push_back(supportedButtons[button]);
-            }
-
-            if (!newButton.keys.empty() && have_alias)
-            {
-                alias += " (" + button + ")";
+                alias = parsedButtons;
             }
 
             if (buttons.rows.empty() || buttons.rows.back().size() == settings.buttons_per_row)
