@@ -5,14 +5,16 @@
 # BSD-2-Clause license. See the accompanying LICENSE file for details.
 
 if (NOT USE_VENDORED_IMGUI)
+    find_package(imgui REQUIRED)
     return()
 endif()
 
 include(FetchContent)
 
 set(imgui_TAG v1.90.4)
-set(IMGUI_BUILD_GLFW_BINDING ON)
 set(imgui-feedstock_TAG 7f402e0ac895620420310a7e4791860a2dc6e79d)
+set(IMGUI_BUILD_GLFW_BINDING ON)
+set(IMGUI_BUILD_OPENGL3_BINDING ON)
 
 FetchContent_Declare(
     imgui

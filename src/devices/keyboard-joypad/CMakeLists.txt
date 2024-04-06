@@ -11,10 +11,13 @@ yarp_prepare_plugin(keyboardJoypad
   DEFAULT ON
   INTERNAL
   QUIET
+  EXTRA_CONFIG
+    WRAPPER=JoypadControlServer
 )
 
 set(yarp_keyboard-joypad_SRCS
   KeyboardJoypad.cpp
+  KeyboardJoypadLogComponent.cpp
 )
 
 set(yarp_keyboard-joypad_HDRS
@@ -49,6 +52,10 @@ if (NOT WIN32)
 endif()
 
 target_include_directories(yarp_keyboard-joypad PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+if (USE_VENDORED_IMGUI)
+   target_include_directories(yarp_keyboard-joypad PUBLIC ${imgui_SOURCE_DIR}/backends) # The files in the backends folder are available when installed
+endif()
 
 target_compile_features(yarp_keyboard-joypad PUBLIC cxx_std_20) #C++20 is used for the designated initialization of structs
 

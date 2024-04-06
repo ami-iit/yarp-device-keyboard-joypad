@@ -9,8 +9,7 @@
 #ifndef YARP_DEV_KEYBOARDJOYPAD_H
 #define YARP_DEV_KEYBOARDJOYPAD_H
 
-#include <atomic>
-#include <mutex>
+#include <memory>
 
 #include <yarp/dev/DeviceDriver.h>
 #include <yarp/dev/IJoypadController.h>
@@ -64,10 +63,8 @@ public:
 
 private:
 
-    std::atomic_bool m_closed{ false };
-
-    std::mutex m_mutex;
-
+    class Impl;
+    std::unique_ptr<Impl> m_pimpl;
 };
 
 
