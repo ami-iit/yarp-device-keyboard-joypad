@@ -27,6 +27,7 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <thread>
 
 #include <yarp/os/LogStream.h>
 
@@ -189,6 +190,7 @@ struct Settings {
     int window_height = 720;
     int buttons_per_row = 3;
     bool allow_window_closing = false;
+    std::atomic<bool> single_threaded { false };
 
     bool parseFromConfigFile(yarp::os::Searchable& cfg)
     {
@@ -250,6 +252,30 @@ struct Settings {
         {
             yCInfo(KEYBOARDJOYPAD) << "The key \"allow_window_closing\" is not present in the configuration file."
                                    << "Using the default value:" << allow_window_closing;
+        }
+
+        //If macOs, the GUI thread must be the main thread. Hence use no GUI thread
+#ifdef __APPLE__
+        single_threaded = true;
+        yCWarning(KEYBOARDJOYPAD) << "In MacOs the GUI thread should be the main thread. Hence, we are using true as default for \"no_gui_thread\"";
+
+#endif //__APPLE__
+
+
+        if (cfg.check("no_gui_thread"))
+        {
+            single_threaded = cfg.find("no_gui_thread").isNull() || cfg.find("no_gui_thread").asBool();
+        }
+        else
+        {
+            yCInfo(KEYBOARDJOYPAD) << "The key \"no_gui_thread\" is not present in the configuration file."
+                                   << "Using the default value:" << static_cast<bool>(single_threaded);
+        }
+
+        if (single_threaded && allow_window_closing)
+        {
+            yCError(KEYBOARDJOYPAD) << "The configuration file is invalid. The keys \"no_gui_thread\" and \"allow_window_closing\" cannot be both true.";
+            return false;
         }
 
         return true;
@@ -374,7 +400,7 @@ class yarp::dev::KeyboardJoypad::Impl
 public:
     GLFWwindow* window = nullptr;
 
-    std::atomic_bool need_to_close{false}, closed{false};
+    std::atomic_bool need_to_close{false}, closed{false}, initialized{false};
 
     std::mutex mutex;
 
@@ -392,6 +418,9 @@ public:
     std::vector<double> axes_values;
     std::vector<std::vector<double>> sticks_values;
     std::vector<double> buttons_values;
+
+    double last_gui_update_time = 0.0;
+    std::thread::id gui_thread_id;
 
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
@@ -655,127 +684,20 @@ public:
         this->button_inactive_color = ImGui::GetStyle().Colors[ImGuiCol_Button];
         this->button_active_color = ImVec4(0.7f, 0.5f, 0.3f, 1.0f);
 
-        int ws = this->axes_settings.axes.find(Axis::WS) != this->axes_settings.axes.end();
-        int ad = this->axes_settings.axes.find(Axis::AD) != this->axes_settings.axes.end();
-        int up_down = this->axes_settings.axes.find(Axis::UP_DOWN) != this->axes_settings.axes.end();
-        int left_right = this->axes_settings.axes.find(Axis::LEFT_RIGHT) != this->axes_settings.axes.end();
-
-        this->axes_values.resize(static_cast<size_t>(this->axes_settings.number_of_axes), 0.0);
-        this->sticks_to_axes.clear();
-
-        if (ws || ad)
-        {
-            this->sticks_to_axes.emplace_back();
-            this->sticks_values.emplace_back();
-            ButtonsTable& wasd = this->sticks.emplace_back();
-            wasd.name = this->axes_settings.wasd_label;
-            wasd.numberOfColumns = ad ? 3 : 1; //Number of columns
-            if (ws)
-            {
-                std::vector<ButtonValue> values;
-                for (AxisSettings& ws_settings : this->axes_settings.axes[Axis::WS])
-                {
-                    values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
-                }
-                wasd.rows.push_back({ {.alias = "W", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_W}, .values = values, .col = ad} });
-            }
-            if (ad)
-            {
-                std::vector<ButtonValue> a_values;
-                std::vector<ButtonValue> d_values;
-                for (AxisSettings& ws_settings : this->axes_settings.axes[Axis::AD])
-                {
-                    a_values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
-                    d_values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
-                }
-                if (a_values.size() > 0)
-                {
-                    this->sticks_to_axes.back().push_back(a_values.front().index);
-                    this->sticks_values.back().push_back(0);
-                }
-
-                wasd.rows.push_back({ {.alias = "A", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_A}, .values = a_values, .col = 0},
-                                     {.alias = "D", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_D}, .values = d_values, .col = 2} });
-            }
-            else
-            {
-                wasd.rows.emplace_back(); //empty row
-            }
-            if (ws)
-            {
-                std::vector<ButtonValue> values;
-                for (AxisSettings& ws_settings : this->axes_settings.axes[Axis::WS])
-                {
-                    values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
-                }
-                if (values.size() > 0)
-                {
-                    this->sticks_to_axes.back().push_back(values.front().index);
-                    this->sticks_values.back().push_back(0);
-                }
-
-                wasd.rows.push_back({ {.alias = "S", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_S}, .values = values, .col = ad} });
-            }
-        }
-
-        if (up_down || left_right)
-        {
-            this->sticks_to_axes.emplace_back();
-            this->sticks_values.emplace_back();
-            ButtonsTable& arrows = this->sticks.emplace_back();
-            arrows.name = this->axes_settings.arrows_label;
-            arrows.numberOfColumns = left_right ? 3 : 1; //Number of columns
-            if (up_down)
-            {
-                std::vector<ButtonValue> values;
-                for (AxisSettings& ws_settings : this->axes_settings.axes[Axis::UP_DOWN])
-                {
-                    values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
-                }
-                arrows.rows.push_back({ {.alias = "top", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_UpArrow}, .values = values, .col = left_right} });
-            }
-            if (left_right)
-            {
-                std::vector<ButtonValue> l_values;
-                std::vector<ButtonValue> r_values;
-                for (AxisSettings& ws_settings : this->axes_settings.axes[Axis::LEFT_RIGHT])
-                {
-                    l_values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
-                    r_values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
-                }
-                if (l_values.size() > 0)
-                {
-                    this->sticks_to_axes.back().push_back(l_values.front().index);
-                    this->sticks_values.back().push_back(0);
-                }
-                arrows.rows.push_back({ {.alias = "left", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_LeftArrow}, .values = l_values, .col = 0},
-                                       {.alias = "right", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_RightArrow}, .values = r_values,.col = 2} });
-            }
-            else
-            {
-                arrows.rows.emplace_back(); //empty row
-            }
-            if (up_down)
-            {
-                std::vector<ButtonValue> values;
-                for (AxisSettings& ws_settings : this->axes_settings.axes[Axis::UP_DOWN])
-                {
-                    values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
-                }
-                if (values.size() > 0)
-                {
-                    this->sticks_to_axes.back().push_back(values.front().index);
-                    this->sticks_values.back().push_back(0);
-                }
-                arrows.rows.push_back({ {.alias = "bottom", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_DownArrow}, .values = values, .col = left_right} });
-            }
-        }
+        this->gui_thread_id = std::this_thread::get_id();
+        this->initialized = true;
 
         return true;
     }
 
     void update()
     {
+
+        if (!this->initialized || this->gui_thread_id != std::this_thread::get_id())
+        {
+            return;
+        }
+
         glfwPollEvents();
 
         // Start the Dear ImGui frame
@@ -861,10 +783,24 @@ public:
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(this->window);
+
+        this->last_gui_update_time = yarp::os::Time::now();
+    }
+
+    bool needUpdate() const
+    {
+        if (this->closed)
+        {
+            return false;
+        }
+        return yarp::os::Time::now() - this->last_gui_update_time > this->settings.gui_period;
     }
 
     void close()
     {
+        if (this->closed || !this->initialized)
+            return;
+
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext();
@@ -893,6 +829,7 @@ yarp::dev::KeyboardJoypad::KeyboardJoypad()
 yarp::dev::KeyboardJoypad::~KeyboardJoypad()
 {
     this->stop();
+    m_pimpl->close();
 }
 
 bool yarp::dev::KeyboardJoypad::open(yarp::os::Searchable& cfg)
@@ -914,13 +851,137 @@ bool yarp::dev::KeyboardJoypad::open(yarp::os::Searchable& cfg)
         return false;
     }
 
-    this->setPeriod(m_pimpl->settings.gui_period);
+    int ws = m_pimpl->axes_settings.axes.find(Axis::WS) != m_pimpl->axes_settings.axes.end();
+    int ad = m_pimpl->axes_settings.axes.find(Axis::AD) != m_pimpl->axes_settings.axes.end();
+    int up_down = m_pimpl->axes_settings.axes.find(Axis::UP_DOWN) != m_pimpl->axes_settings.axes.end();
+    int left_right = m_pimpl->axes_settings.axes.find(Axis::LEFT_RIGHT) != m_pimpl->axes_settings.axes.end();
 
-    // Start the thread
-    if (!this->start()) {
-        yCError(KEYBOARDJOYPAD) << "Thread start failed, aborting.";
-        this->close();
-        return false;
+    m_pimpl->axes_values.resize(static_cast<size_t>(m_pimpl->axes_settings.number_of_axes), 0.0);
+    m_pimpl->sticks_to_axes.clear();
+
+    if (ws || ad)
+    {
+        m_pimpl->sticks_to_axes.emplace_back();
+        m_pimpl->sticks_values.emplace_back();
+        ButtonsTable& wasd = m_pimpl->sticks.emplace_back();
+        wasd.name = m_pimpl->axes_settings.wasd_label;
+        wasd.numberOfColumns = ad ? 3 : 1; //Number of columns
+        if (ws)
+        {
+            std::vector<ButtonValue> values;
+            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::WS])
+            {
+                values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
+            }
+            wasd.rows.push_back({ {.alias = "W", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_W}, .values = values, .col = ad} });
+        }
+        if (ad)
+        {
+            std::vector<ButtonValue> a_values;
+            std::vector<ButtonValue> d_values;
+            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::AD])
+            {
+                a_values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
+                d_values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
+            }
+            if (a_values.size() > 0)
+            {
+                m_pimpl->sticks_to_axes.back().push_back(a_values.front().index);
+                m_pimpl->sticks_values.back().push_back(0);
+            }
+
+            wasd.rows.push_back({ {.alias = "A", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_A}, .values = a_values, .col = 0},
+                                 {.alias = "D", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_D}, .values = d_values, .col = 2} });
+        }
+        else
+        {
+            wasd.rows.emplace_back(); //empty row
+        }
+        if (ws)
+        {
+            std::vector<ButtonValue> values;
+            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::WS])
+            {
+                values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
+            }
+            if (values.size() > 0)
+            {
+                m_pimpl->sticks_to_axes.back().push_back(values.front().index);
+                m_pimpl->sticks_values.back().push_back(0);
+            }
+
+            wasd.rows.push_back({ {.alias = "S", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_S}, .values = values, .col = ad} });
+        }
+    }
+
+    if (up_down || left_right)
+    {
+        m_pimpl->sticks_to_axes.emplace_back();
+        m_pimpl->sticks_values.emplace_back();
+        ButtonsTable& arrows = m_pimpl->sticks.emplace_back();
+        arrows.name = m_pimpl->axes_settings.arrows_label;
+        arrows.numberOfColumns = left_right ? 3 : 1; //Number of columns
+        if (up_down)
+        {
+            std::vector<ButtonValue> values;
+            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::UP_DOWN])
+            {
+                values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
+            }
+            arrows.rows.push_back({ {.alias = "top", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_UpArrow}, .values = values, .col = left_right} });
+        }
+        if (left_right)
+        {
+            std::vector<ButtonValue> l_values;
+            std::vector<ButtonValue> r_values;
+            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::LEFT_RIGHT])
+            {
+                l_values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
+                r_values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
+            }
+            if (l_values.size() > 0)
+            {
+                m_pimpl->sticks_to_axes.back().push_back(l_values.front().index);
+                m_pimpl->sticks_values.back().push_back(0);
+            }
+            arrows.rows.push_back({ {.alias = "left", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_LeftArrow}, .values = l_values, .col = 0},
+                                   {.alias = "right", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_RightArrow}, .values = r_values,.col = 2} });
+        }
+        else
+        {
+            arrows.rows.emplace_back(); //empty row
+        }
+        if (up_down)
+        {
+            std::vector<ButtonValue> values;
+            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::UP_DOWN])
+            {
+                values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
+            }
+            if (values.size() > 0)
+            {
+                m_pimpl->sticks_to_axes.back().push_back(values.front().index);
+                m_pimpl->sticks_values.back().push_back(0);
+            }
+            arrows.rows.push_back({ {.alias = "bottom", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_DownArrow}, .values = values, .col = left_right} });
+        }
+    }
+
+    if (m_pimpl->settings.single_threaded)
+    {
+        yCInfo(KEYBOARDJOYPAD) << "The device is running in single threaded mode.";
+    }
+    else
+    {
+        yCInfo(KEYBOARDJOYPAD) << "The device is running in multi threaded mode.";
+        this->setPeriod(m_pimpl->settings.gui_period);
+
+        // Start the thread
+        if (!this->start()) {
+            yCError(KEYBOARDJOYPAD) << "Thread start failed, aborting.";
+            this->close();
+            return false;
+        }
     }
 
     return true;
@@ -930,11 +991,20 @@ bool yarp::dev::KeyboardJoypad::close()
 {
     yCInfo(KEYBOARDJOYPAD) << "Closing the device";
     this->askToStop();
+    if (m_pimpl->settings.single_threaded)
+    {
+        m_pimpl->close();
+    }
     return true;
 }
 
 bool yarp::dev::KeyboardJoypad::threadInit()
 {
+    if (m_pimpl->closed || m_pimpl->settings.single_threaded)
+    {
+        return false;
+    }
+
     std::lock_guard<std::mutex> lock(m_pimpl->mutex);
 
     return m_pimpl->initialize();
@@ -942,8 +1012,10 @@ bool yarp::dev::KeyboardJoypad::threadInit()
 
 void yarp::dev::KeyboardJoypad::threadRelease()
 {
-    if (m_pimpl->closed)
+    if (m_pimpl->closed || m_pimpl->settings.single_threaded)
+    {
         return;
+    }
 
     std::lock_guard<std::mutex> lock(m_pimpl->mutex);
 
@@ -952,7 +1024,7 @@ void yarp::dev::KeyboardJoypad::threadRelease()
 
 void yarp::dev::KeyboardJoypad::run()
 {
-    if (m_pimpl->closed)
+    if (m_pimpl->closed || m_pimpl->settings.single_threaded)
     {
         return;
     }
@@ -999,6 +1071,18 @@ bool yarp::dev::KeyboardJoypad::startService()
 bool yarp::dev::KeyboardJoypad::updateService()
 {
     //To let the device driver that we are still alive
+    if (m_pimpl->settings.single_threaded && !m_pimpl->closed)
+    {
+        std::lock_guard<std::mutex> lock(m_pimpl->mutex);
+        if (!m_pimpl->initialized)
+        {
+            if (!m_pimpl->initialize())
+            {
+                return false;
+            }
+        }
+        m_pimpl->update();
+    }
     return !m_pimpl->closed;
 }
 
@@ -1064,6 +1148,17 @@ bool yarp::dev::KeyboardJoypad::getStickDoF(unsigned int stick_id, unsigned int&
 bool yarp::dev::KeyboardJoypad::getButton(unsigned int button_id, float& value)
 {
     std::lock_guard<std::mutex> lock(m_pimpl->mutex);
+    if (!m_pimpl->initialized)
+    {
+        if (!m_pimpl->initialize())
+        {
+            return false;
+        }
+    }
+    if (m_pimpl->settings.single_threaded && m_pimpl->needUpdate())
+    {
+        m_pimpl->update();
+    }
     if (button_id >= m_pimpl->buttons_values.size())
     {
         yCError(KEYBOARDJOYPAD) << "The button with id" << button_id << "does not exist.";
@@ -1088,6 +1183,17 @@ bool yarp::dev::KeyboardJoypad::getHat(unsigned int /*hat_id*/, unsigned char& /
 bool yarp::dev::KeyboardJoypad::getAxis(unsigned int axis_id, double& value)
 {
     std::lock_guard<std::mutex> lock(m_pimpl->mutex);
+    if (!m_pimpl->initialized)
+    {
+        if (!m_pimpl->initialize())
+        {
+            return false;
+        }
+    }
+    if (m_pimpl->settings.single_threaded && m_pimpl->needUpdate())
+    {
+        m_pimpl->update();
+    }
     if (axis_id >= m_pimpl->axes_values.size())
     {
         yCError(KEYBOARDJOYPAD) << "The axis with id" << axis_id << "does not exist.";
@@ -1100,6 +1206,17 @@ bool yarp::dev::KeyboardJoypad::getAxis(unsigned int axis_id, double& value)
 bool yarp::dev::KeyboardJoypad::getStick(unsigned int stick_id, yarp::sig::Vector& value, JoypadCtrl_coordinateMode coordinate_mode)
 {
     std::lock_guard<std::mutex> lock(m_pimpl->mutex);
+    if (!m_pimpl->initialized)
+    {
+        if (!m_pimpl->initialize())
+        {
+            return false;
+        }
+    }
+    if (m_pimpl->settings.single_threaded && m_pimpl->needUpdate())
+    {
+        m_pimpl->update();
+    }
     if (stick_id >= m_pimpl->sticks_values.size())
     {
         yCError(KEYBOARDJOYPAD) << "The stick with id" << stick_id << "does not exist.";
