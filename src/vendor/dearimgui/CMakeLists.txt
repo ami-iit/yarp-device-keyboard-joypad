@@ -5,6 +5,7 @@
 # BSD-2-Clause license. See the accompanying LICENSE file for details.
 
 if (NOT USE_VENDORED_IMGUI)
+    find_package(imgui REQUIRED)
     return()
 endif()
 

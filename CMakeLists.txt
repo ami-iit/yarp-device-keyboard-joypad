@@ -77,9 +77,11 @@ find_package(glfw3 REQUIRED NO_MODULE)
 find_package(GLEW REQUIRED) #Helps with the OpenGL configuration on Windows
 
 find_package(imgui QUIET)
-if(NOT imgui_FOUND)
-    message(STATUS "imgui not found, using vendored version")
-    set(USE_VENDORED_IMGUI ON)
+if (${imgui_FOUND})
+message(STATUS "Found imgui: ${imgui_DIR}")
+option(USE_VENDORED_IMGUI "Use vendored version of imgui" OFF)
+else()
+option(USE_VENDORED_IMGUI "Use vendored version of imgui" ON)
 endif()
 
 ## This is to select the newest version of OpenGL
