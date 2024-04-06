@@ -604,6 +604,281 @@ public:
         ImGui::EndTable();
     }
 
+    bool initialize()
+    {
+        glfwSetErrorCallback(&KeyboardJoypad::Impl::glfwErrorCallback);
+        if (!glfwInit()) {
+            yCError(KEYBOARDJOYPAD, "Unable to initialize GLFW");
+            return false;
+        }
+
+        this->window = glfwCreateWindow(this->settings.window_width, this->settings.window_height,
+            "YARP Keyboard as Joypad Device Window", nullptr, nullptr);
+        if (!this->window) {
+            yCError(KEYBOARDJOYPAD, "Could not create window");
+            return false;
+        }
+
+        glfwMakeContextCurrent(this->window);
+        glfwSwapInterval(1);
+
+        // Initialize the GLEW OpenGL 3.x bindings
+        // GLEW must be initialized after creating the window
+        glewExperimental = GL_TRUE;
+        GLenum err = glewInit();
+        if (err != GLEW_OK) {
+            yCError(KEYBOARDJOYPAD) << "glewInit failed, aborting.";
+            return false;
+        }
+        yCInfo(KEYBOARDJOYPAD) << "Using GLEW" << (const char*)glewGetString(GLEW_VERSION);
+
+        glDebugMessageControl(GL_DEBUG_SOURCE_API, GL_DEBUG_TYPE_OTHER, GL_DEBUG_SEVERITY_NOTIFICATION, 0, NULL, GL_FALSE); //This is to ignore message 0x20071 about the use of the VIDEO memory
+
+        glDebugMessageCallback(&KeyboardJoypad::Impl::GLMessageCallback, NULL);
+        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+        glEnable(GL_DEBUG_OUTPUT);
+
+
+        // Setup Dear ImGui context
+        IMGUI_CHECKVERSION();
+        ImGui::CreateContext();
+        ImGuiIO& io = ImGui::GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags_NavNoCaptureKeyboard;
+
+        // Setup Dear ImGui style
+        ImGui::StyleColorsDark();
+
+        // Setup Platform/Renderer backends
+        ImGui_ImplGlfw_InitForOpenGL(this->window, true);
+        ImGui_ImplOpenGL3_Init();
+
+        this->button_inactive_color = ImGui::GetStyle().Colors[ImGuiCol_Button];
+        this->button_active_color = ImVec4(0.7f, 0.5f, 0.3f, 1.0f);
+
+        int ws = this->axes_settings.axes.find(Axis::WS) != this->axes_settings.axes.end();
+        int ad = this->axes_settings.axes.find(Axis::AD) != this->axes_settings.axes.end();
+        int up_down = this->axes_settings.axes.find(Axis::UP_DOWN) != this->axes_settings.axes.end();
+        int left_right = this->axes_settings.axes.find(Axis::LEFT_RIGHT) != this->axes_settings.axes.end();
+
+        this->axes_values.resize(static_cast<size_t>(this->axes_settings.number_of_axes), 0.0);
+        this->sticks_to_axes.clear();
+
+        if (ws || ad)
+        {
+            this->sticks_to_axes.emplace_back();
+            this->sticks_values.emplace_back();
+            ButtonsTable& wasd = this->sticks.emplace_back();
+            wasd.name = this->axes_settings.wasd_label;
+            wasd.numberOfColumns = ad ? 3 : 1; //Number of columns
+            if (ws)
+            {
+                std::vector<ButtonValue> values;
+                for (AxisSettings& ws_settings : this->axes_settings.axes[Axis::WS])
+                {
+                    values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
+                }
+                wasd.rows.push_back({ {.alias = "W", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_W}, .values = values, .col = ad} });
+            }
+            if (ad)
+            {
+                std::vector<ButtonValue> a_values;
+                std::vector<ButtonValue> d_values;
+                for (AxisSettings& ws_settings : this->axes_settings.axes[Axis::AD])
+                {
+                    a_values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
+                    d_values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
+                }
+                if (a_values.size() > 0)
+                {
+                    this->sticks_to_axes.back().push_back(a_values.front().index);
+                    this->sticks_values.back().push_back(0);
+                }
+
+                wasd.rows.push_back({ {.alias = "A", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_A}, .values = a_values, .col = 0},
+                                     {.alias = "D", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_D}, .values = d_values, .col = 2} });
+            }
+            else
+            {
+                wasd.rows.emplace_back(); //empty row
+            }
+            if (ws)
+            {
+                std::vector<ButtonValue> values;
+                for (AxisSettings& ws_settings : this->axes_settings.axes[Axis::WS])
+                {
+                    values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
+                }
+                if (values.size() > 0)
+                {
+                    this->sticks_to_axes.back().push_back(values.front().index);
+                    this->sticks_values.back().push_back(0);
+                }
+
+                wasd.rows.push_back({ {.alias = "S", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_S}, .values = values, .col = ad} });
+            }
+        }
+
+        if (up_down || left_right)
+        {
+            this->sticks_to_axes.emplace_back();
+            this->sticks_values.emplace_back();
+            ButtonsTable& arrows = this->sticks.emplace_back();
+            arrows.name = this->axes_settings.arrows_label;
+            arrows.numberOfColumns = left_right ? 3 : 1; //Number of columns
+            if (up_down)
+            {
+                std::vector<ButtonValue> values;
+                for (AxisSettings& ws_settings : this->axes_settings.axes[Axis::UP_DOWN])
+                {
+                    values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
+                }
+                arrows.rows.push_back({ {.alias = "top", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_UpArrow}, .values = values, .col = left_right} });
+            }
+            if (left_right)
+            {
+                std::vector<ButtonValue> l_values;
+                std::vector<ButtonValue> r_values;
+                for (AxisSettings& ws_settings : this->axes_settings.axes[Axis::LEFT_RIGHT])
+                {
+                    l_values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
+                    r_values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
+                }
+                if (l_values.size() > 0)
+                {
+                    this->sticks_to_axes.back().push_back(l_values.front().index);
+                    this->sticks_values.back().push_back(0);
+                }
+                arrows.rows.push_back({ {.alias = "left", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_LeftArrow}, .values = l_values, .col = 0},
+                                       {.alias = "right", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_RightArrow}, .values = r_values,.col = 2} });
+            }
+            else
+            {
+                arrows.rows.emplace_back(); //empty row
+            }
+            if (up_down)
+            {
+                std::vector<ButtonValue> values;
+                for (AxisSettings& ws_settings : this->axes_settings.axes[Axis::UP_DOWN])
+                {
+                    values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
+                }
+                if (values.size() > 0)
+                {
+                    this->sticks_to_axes.back().push_back(values.front().index);
+                    this->sticks_values.back().push_back(0);
+                }
+                arrows.rows.push_back({ {.alias = "bottom", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_DownArrow}, .values = values, .col = left_right} });
+            }
+        }
+
+        return true;
+    }
+
+    void update()
+    {
+        glfwPollEvents();
+
+        // Start the Dear ImGui frame
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        for (double& value : this->axes_values)
+        {
+            value = 0;
+        }
+
+        for (double& value : this->buttons_values)
+        {
+            value = 0;
+        }
+
+        for (auto& value : this->ctrl_value)
+        {
+            value = 0;
+        }
+
+        ImVec2 position(this->settings.button_size, this->settings.button_size);
+        float button_table_height = position.y;
+        for (auto& stick : this->sticks)
+        {
+            position.y = this->settings.button_size; //Keep the sticks on the save level
+            this->prepareWindow(position, stick.name);
+            this->renderButtonsTable(stick, false, this->axes_values);
+            ImGui::End();
+            position.x += (stick.numberOfColumns + 1) * this->settings.button_size; // Move the next table to the right (n columns + 1 space)
+            position.y += (stick.rows.size() + 1) * this->settings.button_size; // Move the next table down (n rows + 1 space)
+            button_table_height = std::max(button_table_height, position.y);
+        }
+
+        //Update sticks values from axes values
+        for (size_t i = 0; i < this->sticks_to_axes.size(); ++i)
+        {
+            for (size_t j = 0; j < this->sticks_to_axes[i].size(); j++)
+            {
+                this->sticks_values[i][j] = this->axes_values[this->sticks_to_axes[i][j]];
+            }
+        }
+
+        if (!this->buttons.rows.empty())
+        {
+            position.y = this->settings.button_size; //Keep the buttons on the save level of the sticks
+            this->prepareWindow(position, this->buttons.name);
+            ImGui::BeginTable("Buttons_layout", 1, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_SizingMask_ | ImGuiTableFlags_BordersInner);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            this->ctrl_button.render(this->button_active_color, this->button_inactive_color, ImVec2(this->settings.button_size, this->settings.button_size), false, this->ctrl_value);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            bool hold_active = this->ctrl_value.front() > 0;
+            this->renderButtonsTable(this->buttons, hold_active, this->buttons_values);
+            ImGui::EndTable();
+            ImGui::End();
+        }
+
+        position.x = this->settings.button_size; //Reset the x position
+        position.y = button_table_height; //Move the next table down
+
+        this->prepareWindow(position, "Settings");
+        ImGuiIO& io = ImGui::GetIO();
+        ImGui::Text("Application average %.1f ms/frame (%.1f FPS)", io.DeltaTime * 1000.0f, io.Framerate);
+
+        int width, height;
+        glfwGetWindowSize(this->window, &width, &height);
+
+        ImGui::Text("Window size: %d x %d", width, height);
+        ImGui::SliderFloat("Button size", &this->settings.button_size, this->settings.min_button_size, this->settings.max_button_size);
+        ImGui::SliderFloat("Font multiplier", &this->settings.font_multiplier, this->settings.min_font_multiplier, this->settings.max_font_multiplier);
+        ImGui::End();
+
+        // Rendering
+        ImGui::Render();
+        int display_w, display_h;
+        glfwGetFramebufferSize(this->window, &display_w, &display_h);
+        glViewport(0, 0, display_w, display_h);
+        glClearColor(this->clear_color.x * this->clear_color.w, this->clear_color.y * this->clear_color.w, this->clear_color.z * this->clear_color.w, this->clear_color.w);
+        glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        glfwSwapBuffers(this->window);
+    }
+
+    void close()
+    {
+        ImGui_ImplOpenGL3_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
+
+        if (this->window)
+        {
+            glfwDestroyWindow(this->window);
+            glfwTerminate();
+            this->window = nullptr;
+        }
+
+        this->closed = true;
+    }
+
 };
 
 
@@ -662,172 +937,7 @@ bool yarp::dev::KeyboardJoypad::threadInit()
 {
     std::lock_guard<std::mutex> lock(m_pimpl->mutex);
 
-    glfwSetErrorCallback(&KeyboardJoypad::Impl::glfwErrorCallback);
-    if (!glfwInit()) {
-        yCError(KEYBOARDJOYPAD, "Unable to initialize GLFW");
-        return false;
-    }
-
-    m_pimpl->window = glfwCreateWindow(m_pimpl->settings.window_width, m_pimpl->settings.window_height,
-                                       "YARP Keyboard as Joypad Device Window", nullptr, nullptr);
-    if (!m_pimpl->window) {
-        yCError(KEYBOARDJOYPAD, "Could not create window");
-        return false;
-    }
-
-    glfwMakeContextCurrent(m_pimpl->window);
-    glfwSwapInterval(1);
-
-    // Initialize the GLEW OpenGL 3.x bindings
-    // GLEW must be initialized after creating the window
-    glewExperimental = GL_TRUE;
-    GLenum err = glewInit();
-    if (err != GLEW_OK) {
-        yCError(KEYBOARDJOYPAD) << "glewInit failed, aborting.";
-        return false;
-    }
-    yCInfo(KEYBOARDJOYPAD) << "Using GLEW" << (const char*)glewGetString(GLEW_VERSION);
-
-    glDebugMessageControl(GL_DEBUG_SOURCE_API, GL_DEBUG_TYPE_OTHER, GL_DEBUG_SEVERITY_NOTIFICATION, 0, NULL, GL_FALSE); //This is to ignore message 0x20071 about the use of the VIDEO memory
-
-    glDebugMessageCallback(&KeyboardJoypad::Impl::GLMessageCallback, NULL);
-    glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
-    glEnable(GL_DEBUG_OUTPUT);
-
-
-    // Setup Dear ImGui context
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavNoCaptureKeyboard;
-
-    // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
-
-    // Setup Platform/Renderer backends
-    ImGui_ImplGlfw_InitForOpenGL(m_pimpl->window, true);
-    ImGui_ImplOpenGL3_Init();
-
-    m_pimpl->button_inactive_color = ImGui::GetStyle().Colors[ImGuiCol_Button];
-    m_pimpl->button_active_color = ImVec4(0.7f, 0.5f, 0.3f, 1.0f);
-
-    int ws = m_pimpl->axes_settings.axes.find(Axis::WS) != m_pimpl->axes_settings.axes.end();
-    int ad = m_pimpl->axes_settings.axes.find(Axis::AD) != m_pimpl->axes_settings.axes.end();
-    int up_down = m_pimpl->axes_settings.axes.find(Axis::UP_DOWN) != m_pimpl->axes_settings.axes.end();
-    int left_right = m_pimpl->axes_settings.axes.find(Axis::LEFT_RIGHT) != m_pimpl->axes_settings.axes.end();
-
-    m_pimpl->axes_values.resize(static_cast<size_t>(m_pimpl->axes_settings.number_of_axes), 0.0);
-    m_pimpl->sticks_to_axes.clear();
-
-    if (ws || ad)
-    {
-        m_pimpl->sticks_to_axes.emplace_back();
-        m_pimpl->sticks_values.emplace_back();
-        ButtonsTable& wasd = m_pimpl->sticks.emplace_back();
-        wasd.name = m_pimpl->axes_settings.wasd_label;
-        wasd.numberOfColumns = ad ? 3 : 1; //Number of columns
-        if (ws)
-        {
-            std::vector<ButtonValue> values;
-            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::WS])
-            {
-                values.push_back({.sign = -ws_settings.sign, .index = ws_settings.index});
-            }
-            wasd.rows.push_back({{.alias = "W", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_W}, .values = values, .col = ad}});
-        }
-        if (ad)
-        {
-            std::vector<ButtonValue> a_values;
-            std::vector<ButtonValue> d_values;
-            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::AD])
-            {
-                a_values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
-                d_values.push_back({ .sign =  ws_settings.sign, .index = ws_settings.index });
-            }
-            if (a_values.size() > 0)
-            {
-                m_pimpl->sticks_to_axes.back().push_back(a_values.front().index);
-                m_pimpl->sticks_values.back().push_back(0);
-            }
-
-            wasd.rows.push_back({{.alias = "A", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_A}, .values = a_values, .col = 0},
-                                 {.alias = "D", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_D}, .values = d_values, .col = 2}});
-        }
-        else
-        {
-            wasd.rows.emplace_back(); //empty row
-        }
-        if (ws)
-        {
-            std::vector<ButtonValue> values;
-            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::WS])
-            {
-                values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
-            }
-            if (values.size() > 0)
-            {
-                m_pimpl->sticks_to_axes.back().push_back(values.front().index);
-                m_pimpl->sticks_values.back().push_back(0);
-            }
-
-            wasd.rows.push_back({{.alias = "S", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_S}, .values = values, .col = ad}});
-        }
-    }
-
-    if (up_down || left_right)
-    {
-        m_pimpl->sticks_to_axes.emplace_back();
-        m_pimpl->sticks_values.emplace_back();
-        ButtonsTable& arrows = m_pimpl->sticks.emplace_back();
-        arrows.name = m_pimpl->axes_settings.arrows_label;
-        arrows.numberOfColumns = left_right ? 3 : 1; //Number of columns
-        if (up_down)
-        {
-            std::vector<ButtonValue> values;
-            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::UP_DOWN])
-            {
-                values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
-            }
-            arrows.rows.push_back({{.alias = "top", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_UpArrow}, .values = values, .col = left_right}});
-        }
-        if (left_right)
-        {
-            std::vector<ButtonValue> l_values;
-            std::vector<ButtonValue> r_values;
-            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::LEFT_RIGHT])
-            {
-                l_values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
-                r_values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
-            }
-            if (l_values.size() > 0)
-            {
-                m_pimpl->sticks_to_axes.back().push_back(l_values.front().index);
-                m_pimpl->sticks_values.back().push_back(0);
-            }
-            arrows.rows.push_back({{.alias = "left", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_LeftArrow}, .values = l_values, .col = 0},
-                                   {.alias = "right", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_RightArrow}, .values = r_values,.col = 2}});
-        }
-        else
-        {
-            arrows.rows.emplace_back(); //empty row
-        }
-        if (up_down)
-        {
-            std::vector<ButtonValue> values;
-            for (AxisSettings& ws_settings : m_pimpl->axes_settings.axes[Axis::UP_DOWN])
-            {
-                values.push_back({ .sign = ws_settings.sign, .index = ws_settings.index });
-            }
-            if (values.size() > 0)
-            {
-                m_pimpl->sticks_to_axes.back().push_back(values.front().index);
-                m_pimpl->sticks_values.back().push_back(0);
-            }
-            arrows.rows.push_back({{.alias = "bottom", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_DownArrow}, .values = values, .col = left_right}});
-        }
-    }
-
-    return true;
+    return m_pimpl->initialize();
 }
 
 void yarp::dev::KeyboardJoypad::threadRelease()
@@ -837,18 +947,7 @@ void yarp::dev::KeyboardJoypad::threadRelease()
 
     std::lock_guard<std::mutex> lock(m_pimpl->mutex);
 
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
-
-    if (m_pimpl->window)
-    {
-        glfwDestroyWindow(m_pimpl->window);
-        glfwTerminate();
-        m_pimpl->window = nullptr;
-    }
-
-    m_pimpl->closed = true;
+    m_pimpl->close();
 }
 
 void yarp::dev::KeyboardJoypad::run()
@@ -871,91 +970,7 @@ void yarp::dev::KeyboardJoypad::run()
     {
         std::lock_guard<std::mutex> lock(m_pimpl->mutex);
 
-        glfwPollEvents();
-
-        // Start the Dear ImGui frame
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
-
-        for (double& value : m_pimpl->axes_values)
-        {
-            value = 0;
-        }
-
-        for (double& value : m_pimpl->buttons_values)
-        {
-            value = 0;
-        }
-
-        for (auto& value : m_pimpl->ctrl_value)
-        {
-            value = 0;
-        }
-
-        ImVec2 position(m_pimpl->settings.button_size, m_pimpl->settings.button_size);
-        float button_table_height = position.y;
-        for (auto& stick : m_pimpl->sticks)
-        {
-            position.y = m_pimpl->settings.button_size; //Keep the sticks on the save level
-            m_pimpl->prepareWindow(position, stick.name);
-            m_pimpl->renderButtonsTable(stick, false, m_pimpl->axes_values);
-            ImGui::End();
-            position.x += (stick.numberOfColumns + 1) * m_pimpl->settings.button_size; // Move the next table to the right (n columns + 1 space)
-            position.y += (stick.rows.size() + 1) * m_pimpl->settings.button_size; // Move the next table down (n rows + 1 space)
-            button_table_height = std::max(button_table_height, position.y);
-        }
-
-        //Update sticks values from axes values
-        for (size_t i = 0; i < m_pimpl->sticks_to_axes.size(); ++i)
-        {
-            for (size_t j = 0; j < m_pimpl->sticks_to_axes[i].size(); j++)
-            {
-                m_pimpl->sticks_values[i][j] = m_pimpl->axes_values[m_pimpl->sticks_to_axes[i][j]];
-            }
-        }
-
-        if (!m_pimpl->buttons.rows.empty())
-        {
-            position.y = m_pimpl->settings.button_size; //Keep the buttons on the save level of the sticks
-            m_pimpl->prepareWindow(position, m_pimpl->buttons.name);
-            ImGui::BeginTable("Buttons_layout", 1, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_SizingMask_ | ImGuiTableFlags_BordersInner);
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            m_pimpl->ctrl_button.render(m_pimpl->button_active_color, m_pimpl->button_inactive_color, ImVec2(m_pimpl->settings.button_size, m_pimpl->settings.button_size), false, m_pimpl->ctrl_value);
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            bool hold_active = m_pimpl->ctrl_value.front() > 0;
-            m_pimpl->renderButtonsTable(m_pimpl->buttons, hold_active, m_pimpl->buttons_values);
-            ImGui::EndTable();
-            ImGui::End();
-        }
-
-        position.x = m_pimpl->settings.button_size; //Reset the x position
-        position.y = button_table_height; //Move the next table down
-
-        m_pimpl->prepareWindow(position, "Settings");
-        ImGuiIO& io = ImGui::GetIO();
-        ImGui::Text("Application average %.1f ms/frame (%.1f FPS)", io.DeltaTime * 1000.0f, io.Framerate);
-
-        int width, height;
-        glfwGetWindowSize(m_pimpl->window, &width, &height);
-
-        ImGui::Text("Window size: %d x %d", width, height);
-        ImGui::SliderFloat("Button size", &m_pimpl->settings.button_size, m_pimpl->settings.min_button_size, m_pimpl->settings.max_button_size);
-        ImGui::SliderFloat("Font multiplier", &m_pimpl->settings.font_multiplier, m_pimpl->settings.min_font_multiplier, m_pimpl->settings.max_font_multiplier);
-        ImGui::End();
-
-        // Rendering
-        ImGui::Render();
-        int display_w, display_h;
-        glfwGetFramebufferSize(m_pimpl->window, &display_w, &display_h);
-        glViewport(0, 0, display_w, display_h);
-        glClearColor(m_pimpl->clear_color.x * m_pimpl->clear_color.w, m_pimpl->clear_color.y * m_pimpl->clear_color.w, m_pimpl->clear_color.z * m_pimpl->clear_color.w, m_pimpl->clear_color.w);
-        glClear(GL_COLOR_BUFFER_BIT);
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
-        glfwSwapBuffers(m_pimpl->window);
+        m_pimpl->update();
 
         desired_period = getPeriod();
         period = getEstimatedUsed();
