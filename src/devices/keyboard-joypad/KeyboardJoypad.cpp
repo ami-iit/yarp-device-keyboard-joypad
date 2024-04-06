@@ -257,7 +257,7 @@ struct Settings {
         //If macOs, the GUI thread must be the main thread. Hence use no GUI thread
 #ifdef __APPLE__
         single_threaded = true;
-        yCWarning(KEYBOARDJOYPAD) << "In MacOs the GUI thread should be the main thread. Hence, we are using true as default for \"no_gui_thread\"";
+        yCWarning(KEYBOARDJOYPAD) << "In macOS the GUI thread should be the main thread. Hence, we are using true as default for \"no_gui_thread\"";
 
 #endif //__APPLE__
 
