@@ -125,7 +125,7 @@ struct ButtonState {
 struct ButtonsTable
 {
     std::vector<std::vector<ButtonState>> rows;
-    int numberOfColumns;
+    int numberOfColumns { 0 };
     std::string name;
 };
 
@@ -423,6 +423,8 @@ public:
 
         yarp::os::Bottle* buttons_list = cfg.find("buttons").asList();
 
+        std::unordered_map<std::string, std::pair<size_t, size_t>> buttons_map; //map existing buttons to their location
+
         int col = 0;
         for (size_t i = 0; i < buttons_list->size(); i++)
         {
@@ -497,7 +499,6 @@ public:
             std::string parsedButtons;
             for (auto& button : buttons_key_list)
             {
-                yError() << "Button: " << button;
                 bool parsed = true;
                 if (button.size() == 1 && button[0] >= 'A' && button[0] <= 'Z')
                 {
@@ -529,7 +530,6 @@ public:
                     }
                 }
             }
-            yError() << "Parsed buttons: " << parsedButtons;
 
             if (!parsedButtons.empty() && have_alias)
             {
@@ -540,15 +540,25 @@ public:
                 alias = parsedButtons;
             }
 
-            if (buttons.rows.empty() || buttons.rows.back().size() == settings.buttons_per_row)
-            {
-                buttons.rows.emplace_back();
-                col = 0;
-            }
-            newButton.col = col++;
             newButton.alias = alias;
 
-            buttons.rows.back().push_back(newButton);
+            if (buttons_map.find(newButton.alias) != buttons_map.end())
+            {
+                size_t button_row = buttons_map[newButton.alias].first;
+                size_t button_col = buttons_map[newButton.alias].second;
+                buttons.rows[button_row][button_col].values.push_back(newButton.values.front());
+            }
+            else
+            {
+                if (buttons.rows.empty() || buttons.rows.back().size() == settings.buttons_per_row)
+                {
+                    buttons.rows.emplace_back();
+                    col = 0;
+                }
+                newButton.col = col++;
+                buttons.rows.back().push_back(newButton);
+                buttons_map[newButton.alias] = std::make_pair(buttons.rows.size() - 1, buttons.rows.back().size() - 1);
+            }
         }
         buttons_values.resize(buttons_list->size(), 0.0);
         if (!buttons.rows.empty())
