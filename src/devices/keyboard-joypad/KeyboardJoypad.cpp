@@ -534,6 +534,7 @@ struct JoypadInfo
     int buttons;
     size_t axes_offset;
     size_t buttons_offset;
+    bool active;
 };
 
 class yarp::dev::KeyboardJoypad::Impl
@@ -563,6 +564,7 @@ public:
     std::vector<JoypadInfo> joypads;
     std::vector<float> joypad_axis_values;
     std::vector<bool> joypad_button_values;
+    bool using_joypad = false;
 
     double last_gui_update_time = 0.0;
     std::thread::id gui_thread_id;
@@ -862,8 +864,10 @@ public:
             }
             this->joypads[static_cast<size_t>(joypad_index)].axes_offset = axes_offset;
             this->joypads[static_cast<size_t>(joypad_index)].buttons_offset = buttons_offset;
+            this->joypads[static_cast<size_t>(joypad_index)].active = true;
             axes_offset += this->joypads[static_cast<size_t>(joypad_index)].axes;
             buttons_offset += this->joypads[static_cast<size_t>(joypad_index)].buttons;
+            this->using_joypad = true;
         }
         this->joypad_axis_values.resize(axes_offset, 0.0);
         this->joypad_button_values.resize(buttons_offset, false);
@@ -922,25 +926,28 @@ public:
 
         this->prepareFrame();
 
-        for (auto& joypad : this->joypads)
+        if (this->using_joypad)
         {
-            if (!glfwJoystickPresent(joypad.index))
+            for (auto& joypad : this->joypads)
             {
-                continue;
-            }
+                if (!glfwJoystickPresent(joypad.index) || !joypad.active)
+                {
+                    continue;
+                }
 
-            int new_axes, new_buttons;
-            const float* axes = glfwGetJoystickAxes(joypad.index, &new_axes);
-            const unsigned char* buttons = glfwGetJoystickButtons(joypad.index, &new_buttons);
+                int new_axes, new_buttons;
+                const float* axes = glfwGetJoystickAxes(joypad.index, &new_axes);
+                const unsigned char* buttons = glfwGetJoystickButtons(joypad.index, &new_buttons);
 
-            for (size_t i = 0; i < std::min(joypad.axes, new_axes); ++i)
-            {
-                this->joypad_axis_values[joypad.axes_offset + i] = axes[i];
-            }
+                for (size_t i = 0; i < std::min(joypad.axes, new_axes); ++i)
+                {
+                    this->joypad_axis_values[joypad.axes_offset + i] = axes[i];
+                }
 
-            for (size_t i = 0; i < std::min(joypad.buttons, new_buttons); ++i)
-            {
-                this->joypad_button_values[joypad.buttons_offset + i] = buttons[i] == GLFW_PRESS;
+                for (size_t i = 0; i < std::min(joypad.buttons, new_buttons); ++i)
+                {
+                    this->joypad_button_values[joypad.buttons_offset + i] = buttons[i] == GLFW_PRESS;
+                }
             }
         }
 
@@ -1024,7 +1031,10 @@ public:
         ImGui::Text("Window size: %d x %d", width, height);
         ImGui::SliderFloat("Button size", &this->settings.button_size, this->settings.min_button_size, this->settings.max_button_size);
         ImGui::SliderFloat("Font multiplier", &this->settings.font_multiplier, this->settings.min_font_multiplier, this->settings.max_font_multiplier);
-        //TODO: Add a slider for the deadzone
+        if (this->using_joypad)
+        {
+            ImGui::SliderFloat("Joypad Deadzone", &this->settings.deadzone, 0.0, 1.0);
+        }
         ImGui::End();
 
         // Rendering
