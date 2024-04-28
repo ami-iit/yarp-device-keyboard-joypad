@@ -28,6 +28,8 @@
 #include <algorithm>
 #include <cmath>
 #include <thread>
+#include <sstream>
+#include <iomanip>
 
 #include <yarp/os/LogStream.h>
 
@@ -52,7 +54,7 @@ struct ButtonState {
     ButtonType type{ ButtonType::REGULAR };
     std::vector<ImGuiKey> keys;
     std::vector<ButtonValue> values;
-    std::vector<int> joypadAxisIndices;
+    std::vector<ButtonValue> joypadAxisInputs;
     std::vector<int> joypadButtonIndices;
     int col{ 0 };
     bool active{ false };
@@ -60,18 +62,9 @@ struct ButtonState {
 
     float deadzone(float input, float deadzone) const
     {
-        if (input >= 0)
-        {
-            if (input > deadzone)
-                return (input - deadzone) / (1.0f - deadzone);
-            else return 0.0;
-        }
-        else
-        {
-            if (input < -deadzone)
-                return (input + deadzone) / (1.0f - deadzone);
-            else return 0.0;
-        }
+        if (input > deadzone)
+            return (input - deadzone) / (1.0f - deadzone);
+        else return 0.0;
     }
 
     void render(const ImVec4& button_active_color, const ImVec4& button_inactive_color,
@@ -115,15 +108,16 @@ struct ButtonState {
         }
 
         float valueFromJoypadAxes = 0.0;
-        for (int i : joypadAxisIndices)
+        for (auto& axis : joypadAxisInputs)
         {
-            if (i >= 0 && i < joypadAxisValues.size())
+            if (axis.index >= 0 && axis.index < joypadAxisValues.size())
             {
-                valueFromJoypadAxes += deadzone(joypadAxisValues[static_cast<size_t>(i)], static_cast<float>(joypadDeadzone));
+                valueFromJoypadAxes += deadzone(axis.sign * joypadAxisValues[static_cast<size_t>(axis.index)], static_cast<float>(joypadDeadzone));
             }
-            else if (i >= 0 && joypadAxisValues.size() > 0)
+            else if (axis.index >= 0 && joypadAxisValues.size() > 0)
             {
-                yCErrorOnce(KEYBOARDJOYPAD) << "The joypad axis index" << i << "is out of range.";
+                yCError(KEYBOARDJOYPAD) << "The joypad axis index" << axis.index << "is out of range.";
+                axis.index = -1;
             }
         }
 
@@ -147,7 +141,7 @@ struct ButtonState {
         }
 
         ImGuiStyle& style = ImGui::GetStyle();
-        const ImVec4& buttonColor = active || std::abs(valueFromJoypadAxes) > 0 ? button_active_color : button_inactive_color;
+        const ImVec4& buttonColor = active || valueFromJoypadAxes > 0 ? button_active_color : button_inactive_color;
         style.Colors[ImGuiCol_Button] = buttonColor;
         style.Colors[ImGuiCol_ButtonHovered] = buttonColor;
         style.Colors[ImGuiCol_ButtonActive] = buttonColor;
@@ -339,7 +333,7 @@ struct Settings {
             return false;
         }
 
-        if (cfg.check("joypad_indices"))
+        if (cfg.check("joypad_indices")) //TODO: README
         {
             yarp::os::Value joypadsValue = cfg.find("joypad_indices");
             if (joypadsValue.isInt32() || joypadsValue.isInt64())
@@ -1034,6 +1028,41 @@ public:
         if (this->using_joypad)
         {
             ImGui::SliderFloat("Joypad Deadzone", &this->settings.deadzone, 0.0, 1.0);
+            // Display the joypad values
+            std::string connectedJoypads = "Connected Joypads: ";
+            for (size_t i = 0; i < this->joypads.size(); ++i)
+            {
+                connectedJoypads += this->joypads[i].name;
+                if (i != this->joypads.size() - 1)
+                {
+                    connectedJoypads += ", ";
+                }
+            }
+            ImGui::Text(connectedJoypads.c_str());
+            std::string axes_values = "Joypad axes values: ";
+            for (size_t i = 0; i < this->joypad_axis_values.size(); ++i)
+            {
+                // Print the values of the axes in the format "axis_index: value" with a 1 decimal precision
+                std::stringstream stream;
+                stream << std::fixed << std::setprecision(2) << this->joypad_axis_values[i];
+                std::string sign = this->joypad_axis_values[i] > 0 ? "+" : "";
+                axes_values += "<" + std::to_string(i) + "> " + sign + stream.str();
+                if (i != this->joypad_axis_values.size() - 1)
+                {
+                    axes_values += ", ";
+                }
+            }
+            ImGui::Text(axes_values.c_str());
+            std::string buttons_values = "Joypad buttons values: ";
+            for (size_t i = 0; i < this->joypad_button_values.size(); ++i)
+            {
+                buttons_values += "<" + std::to_string(i) + "> " + (this->joypad_button_values[i] ? "1" : "0");
+                if (i != this->joypad_button_values.size() - 1)
+                {
+                    buttons_values += ", ";
+                }
+            }
+            ImGui::Text(buttons_values.c_str());
         }
         ImGui::End();
 
@@ -1137,7 +1166,9 @@ bool yarp::dev::KeyboardJoypad::open(yarp::os::Searchable& cfg)
             {
                 values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
             }
-            wasd.rows.push_back({ {.alias = "W", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_W}, .values = values, .col = ad} });
+            wasd.rows.push_back({ {.alias = "W", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_W}, .values = values,
+                                   .joypadAxisInputs = {{.sign = -1, .index = static_cast<size_t>(m_pimpl->axes_settings.ws_joypad_axis_index)}},
+                                   .col = ad} });
         }
         if (ad)
         {
@@ -1154,8 +1185,12 @@ bool yarp::dev::KeyboardJoypad::open(yarp::os::Searchable& cfg)
                 m_pimpl->sticks_values.back().push_back(0);
             }
 
-            wasd.rows.push_back({ {.alias = "A", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_A}, .values = a_values, .col = 0},
-                                 {.alias = "D", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_D}, .values = d_values, .joypadAxisIndices = {m_pimpl->axes_settings.ad_joypad_axis_index}, .col = 2} });
+            wasd.rows.push_back({ {.alias = "A", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_A}, .values = a_values,
+                                   .joypadAxisInputs = {{.sign = -1, .index = static_cast<size_t>(m_pimpl->axes_settings.ad_joypad_axis_index)}},
+                                   .col = 0},
+                                  {.alias = "D", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_D}, .values = d_values,
+                                   .joypadAxisInputs = {{.sign = +1, .index = static_cast<size_t>(m_pimpl->axes_settings.ad_joypad_axis_index)}},
+                                   .col = 2} });
         }
         else
         {
@@ -1174,7 +1209,9 @@ bool yarp::dev::KeyboardJoypad::open(yarp::os::Searchable& cfg)
                 m_pimpl->sticks_values.back().push_back(0);
             }
 
-            wasd.rows.push_back({ {.alias = "S", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_S}, .values = values, .joypadAxisIndices = {m_pimpl->axes_settings.ws_joypad_axis_index}, .col = ad}});
+            wasd.rows.push_back({ {.alias = "S", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_S}, .values = values,
+                                   .joypadAxisInputs = {{.sign = +1, .index = static_cast<size_t>(m_pimpl->axes_settings.ws_joypad_axis_index)}},
+                                   .col = ad}});
         }
     }
 
@@ -1192,7 +1229,9 @@ bool yarp::dev::KeyboardJoypad::open(yarp::os::Searchable& cfg)
             {
                 values.push_back({ .sign = -ws_settings.sign, .index = ws_settings.index });
             }
-            arrows.rows.push_back({ {.alias = "top", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_UpArrow}, .values = values, .col = left_right} });
+            arrows.rows.push_back({ {.alias = "top", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_UpArrow}, .values = values,
+                                     .joypadAxisInputs = {{.sign = -1, .index = static_cast<size_t>(m_pimpl->axes_settings.up_down_joypad_axis_index)}},
+                                     .col = left_right} });
         }
         if (left_right)
         {
@@ -1208,8 +1247,12 @@ bool yarp::dev::KeyboardJoypad::open(yarp::os::Searchable& cfg)
                 m_pimpl->sticks_to_axes.back().push_back(l_values.front().index);
                 m_pimpl->sticks_values.back().push_back(0);
             }
-            arrows.rows.push_back({ {.alias = "left", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_LeftArrow}, .values = l_values, .col = 0},
-                                   {.alias = "right", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_RightArrow}, .values = r_values,.joypadAxisIndices = {m_pimpl->axes_settings.left_right_joypad_axis_index}, .col = 2} });
+            arrows.rows.push_back({ {.alias = "left", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_LeftArrow}, .values = l_values,
+                                     .joypadAxisInputs = {{.sign = -1, .index = static_cast<size_t>(m_pimpl->axes_settings.left_right_joypad_axis_index)}},
+                                     .col = 0},
+                                    {.alias = "right", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_RightArrow}, .values = r_values,
+                                     .joypadAxisInputs = {{.sign = +1, .index = static_cast<size_t>(m_pimpl->axes_settings.left_right_joypad_axis_index)}},
+                                     .col = 2} });
         }
         else
         {
@@ -1227,7 +1270,9 @@ bool yarp::dev::KeyboardJoypad::open(yarp::os::Searchable& cfg)
                 m_pimpl->sticks_to_axes.back().push_back(values.front().index);
                 m_pimpl->sticks_values.back().push_back(0);
             }
-            arrows.rows.push_back({ {.alias = "bottom", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_DownArrow}, .values = values, .joypadAxisIndices = {m_pimpl->axes_settings.up_down_joypad_axis_index}, .col = left_right} });
+            arrows.rows.push_back({ {.alias = "bottom", .type = ButtonType::TOGGLE, .keys = {ImGuiKey_DownArrow}, .values = values,
+                                     .joypadAxisInputs = {{.sign = +1, .index = static_cast<size_t>(m_pimpl->axes_settings.up_down_joypad_axis_index)}},
+                                     .col = left_right} });
         }
     }
 
