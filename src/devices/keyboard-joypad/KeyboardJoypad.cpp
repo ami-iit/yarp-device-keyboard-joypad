@@ -283,11 +283,10 @@ struct Settings {
             return false;
         }
 
-        if (!parseFloat(cfg, "deadzone", 0.f, 1.f, deadzone))
+        if (!parseFloat(cfg, "joypad_deadzone", 0.f, 1.f, deadzone))
         {
             return false;
         }
-        //TODO: Edit README
 
         if (!parseInt(cfg, "window_width", 1, static_cast<int>(1e4), window_width))
         {
@@ -338,7 +337,7 @@ struct Settings {
             return false;
         }
 
-        if (cfg.check("joypad_indices")) //TODO: README
+        if (cfg.check("joypad_indices"))
         {
             yarp::os::Value joypadsValue = cfg.find("joypad_indices");
             if (joypadsValue.isInt32() || joypadsValue.isInt64())
@@ -519,7 +518,6 @@ struct AxesSettings
                 return false;
             }
         }
-        //TODO: Edit README
 
         return true;
     }
@@ -688,7 +686,7 @@ public:
                     button.end(), [](unsigned char c) { return !std::isdigit(c); }) == button.end()) //J followed by a number
                 {
                     int joypad_button = std::stoi(button.substr(1));
-                    newButton.joypadButtonIndices.push_back(joypad_button); //TODO: README
+                    newButton.joypadButtonIndices.push_back(joypad_button);
                 }
                 else if (supportedButtons.find(button) != supportedButtons.end())
                 {
@@ -1032,9 +1030,9 @@ public:
         ImGui::SliderFloat("Font multiplier", &this->settings.font_multiplier, this->settings.min_font_multiplier, this->settings.max_font_multiplier);
         if (this->using_joypad)
         {
-            ImGui::SliderFloat("Joypad Deadzone", &this->settings.deadzone, 0.0, 1.0);
+            ImGui::SliderFloat("Joypad deadzone", &this->settings.deadzone, 0.0, 1.0);
             // Display the joypad values
-            std::string connectedJoypads = "Connected Joypads: ";
+            std::string connectedJoypads = "Connected joypads: ";
             for (size_t i = 0; i < this->joypads.size(); ++i)
             {
                 connectedJoypads += this->joypads[i].name;
@@ -1051,7 +1049,7 @@ public:
                 // Print the values of the axes in the format "axis_index: value" with a 1 decimal precision
                 std::stringstream stream;
                 stream << std::fixed << std::setprecision(2) << this->joypad_axis_values[i];
-                std::string sign = this->joypad_axis_values[i] > 0 ? "+" : "";
+                std::string sign = this->joypad_axis_values[i] >= 0 ? "+" : "";
                 axes_values += "<" + std::to_string(i) + "> " + sign + stream.str();
                 if (i != this->joypad_axis_values.size() - 1)
                 {
@@ -1077,7 +1075,7 @@ public:
             // Print the values of the axes in the format "axis_index: value" with a 1 decimal precision
             std::stringstream stream;
             stream << std::fixed << std::setprecision(2) << this->axes_values[i];
-            std::string sign = this->axes_values[i] > 0 ? "+" : "";
+            std::string sign = this->axes_values[i] >= 0 ? "+" : "";
             output_axes_values += "<" + std::to_string(i) + "> " + sign + stream.str();
             if (i != this->axes_values.size() - 1)
             {
@@ -1086,6 +1084,10 @@ public:
         }
         ImGui::Text(output_axes_values.c_str());
         std::string output_buttons_values = "Output buttons values: ";
+        if (this->buttons_values.empty())
+        {
+            output_buttons_values += "None";
+        }
         for (size_t i = 0; i < this->buttons_values.size(); ++i)
         {
             std::stringstream stream;
