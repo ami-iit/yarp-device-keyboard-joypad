@@ -15,17 +15,23 @@ jobs:
     strategy:
       matrix:
         build_type: [Release]
-        os: [ubuntu-latest, windows-2019]
+        os: [ubuntu-latest, windows-2019, macos-14, macos-12]
         imgui: [mamba, vendored]
       fail-fast: false
 
     steps:
     - uses: actions/checkout@v2
 
-    - uses: conda-incubator/setup-miniconda@v2
+    - uses: conda-incubator/setup-miniconda@v3
+      if: matrix.os != 'macos-14'
       with:
         miniforge-variant: Mambaforge
         miniforge-version: latest
+
+    - uses: conda-incubator/setup-miniconda@v3
+      if: matrix.os == 'macos-14'
+      with:
+        installer-url: https://github.com/conda-forge/miniforge/releases/download/23.11.0-0/Mambaforge-23.11.0-0-MacOSX-arm64.sh
 
     - name: Dependencies
       shell: bash -l {0}
@@ -50,8 +56,8 @@ jobs:
         # See https://github.com/robotology/robotology-superbuild/pull/1606
         mamba install expat freeglut libselinux-cos7-x86_64 xorg-libxau libxcb xorg-libxdamage xorg-libxext xorg-libxfixes xorg-libxxf86vm xorg-libxrandr mesa-libgl-cos7-x86_64 mesa-libgl-devel-cos7-x86_64
 
-    - name: Configure [Linux]
-      if: contains(matrix.os, 'ubuntu')
+    - name: Configure [Linux, macOS]
+      if: contains(matrix.os, 'ubuntu') || contains(matrix.os, 'macos')
       shell: bash -l {0}
       run: |
         mkdir -p build
