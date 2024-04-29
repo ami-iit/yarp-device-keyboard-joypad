@@ -1043,6 +1043,7 @@ public:
                     connectedJoypads += ", ";
                 }
             }
+            ImGui::Separator();
             ImGui::Text(connectedJoypads.c_str());
             std::string axes_values = "Joypad axes values: ";
             for (size_t i = 0; i < this->joypad_axis_values.size(); ++i)
@@ -1069,6 +1070,33 @@ public:
             }
             ImGui::Text(buttons_values.c_str());
         }
+        ImGui::Separator();
+        std::string output_axes_values = "Output axes values: ";
+        for (size_t i = 0; i < this->axes_values.size(); ++i)
+        {
+            // Print the values of the axes in the format "axis_index: value" with a 1 decimal precision
+            std::stringstream stream;
+            stream << std::fixed << std::setprecision(2) << this->axes_values[i];
+            std::string sign = this->axes_values[i] > 0 ? "+" : "";
+            output_axes_values += "<" + std::to_string(i) + "> " + sign + stream.str();
+            if (i != this->axes_values.size() - 1)
+            {
+                output_axes_values += ", ";
+            }
+        }
+        ImGui::Text(output_axes_values.c_str());
+        std::string output_buttons_values = "Output buttons values: ";
+        for (size_t i = 0; i < this->buttons_values.size(); ++i)
+        {
+            std::stringstream stream;
+            stream << std::fixed << std::setprecision(1) << this->buttons_values[i];
+            output_buttons_values += "<" + std::to_string(i) + "> " + stream.str();
+            if (i != this->buttons_values.size() - 1)
+            {
+                output_buttons_values += ", ";
+            }
+        }
+        ImGui::Text(output_buttons_values.c_str());
         ImGui::End();
 
         // Rendering
