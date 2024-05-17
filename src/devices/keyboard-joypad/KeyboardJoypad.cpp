@@ -239,6 +239,7 @@ struct Settings {
     float max_font_multiplier = 4.0;
     float gui_period = 0.033f;
     float deadzone = 0.1f;
+    float padding = 10;
     int window_width = 1280;
     int window_height = 720;
     int buttons_per_row = 3;
@@ -284,6 +285,11 @@ struct Settings {
         }
 
         if (!parseFloat(cfg, "joypad_deadzone", 0.f, 1.f, deadzone))
+        {
+            return false;
+        }
+
+        if (!parseFloat(cfg, "padding", 0.f, 1e5f, padding))
         {
             return false;
         }
@@ -948,17 +954,17 @@ public:
             }
         }
 
-        ImVec2 position(this->settings.button_size, this->settings.button_size);
+        ImVec2 position(this->settings.padding, this->settings.padding);
         float button_table_height = position.y;
         for (auto& stick : this->sticks)
         {
-            position.y = this->settings.button_size; //Keep the sticks on the save level
+            position.y = this->settings.padding; //Keep the sticks on the save level
             this->prepareWindow(position, stick.name);
             this->renderButtonsTable(stick, false, this->settings.deadzone,
                        this->joypad_axis_values, this->joypad_button_values,this->axes_values);
             ImGui::End();
-            position.x += (stick.numberOfColumns + 1) * this->settings.button_size; // Move the next table to the right (n columns + 1 space)
-            position.y += (stick.rows.size() + 1) * this->settings.button_size; // Move the next table down (n rows + 1 space)
+            position.x += stick.numberOfColumns * this->settings.button_size + this->settings.padding; // Move the next table to the right (n columns + 1 space)
+            position.y += stick.rows.size() * this->settings.button_size + this->settings.padding; // Move the next table down (n rows + 1 space)
             button_table_height = std::max(button_table_height, position.y);
         }
 
@@ -986,7 +992,7 @@ public:
 
         if (!this->buttons.rows.empty())
         {
-            position.y = this->settings.button_size; //Keep the buttons on the save level of the sticks
+            position.y = this->settings.padding; //Keep the buttons on the save level of the sticks
             this->prepareWindow(position, this->buttons.name);
             ImGui::BeginTable("Buttons_layout", 1, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_SizingMask_ | ImGuiTableFlags_BordersInner);
             ImGui::TableNextRow();
@@ -1015,7 +1021,7 @@ public:
             }
         }
 
-        position.x = this->settings.button_size; //Reset the x position
+        position.x = this->settings.padding; //Reset the x position
         position.y = button_table_height; //Move the next table down
 
         this->prepareWindow(position, "Settings");
