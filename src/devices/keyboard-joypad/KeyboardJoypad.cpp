@@ -239,7 +239,7 @@ struct Settings {
     float max_font_multiplier = 4.0;
     float gui_period = 0.033f;
     float deadzone = 0.1f;
-    float padding = 10;
+    float padding = 100;
     int window_width = 1280;
     int window_height = 720;
     int buttons_per_row = 3;
