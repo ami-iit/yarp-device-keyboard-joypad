@@ -36,7 +36,7 @@ The device can be configured using the following parameters. They are all option
 - ``window_width``: width of the window in pixels (default: 1280)
 - ``window_height``: height of the window in pixels (default: 720)
 - ``buttons_per_row``: number of buttons per row in the "Buttons" widget (default: 4)
-- ``padding``: padding in pixels for the buttons (default: 100)
+- ``padding``: padding in pixels for the space between the widgets (default: 100)
 - ``allow_window_closing``: when specified or set to true, the window can be closed by pressing the "X" button in the title bar. Note: when using this as device, the parent might keep running anyway (default: false)
 - ``no_gui_thread``: when specified or set to true, the GUI will run in the same thread as the device. The GUI will be updated when calling ``updateService`` or when getting the values of axis/buttons (default: false, true on macOS)
 - ``axes``: definition of the list of axes. The allowed values are "ws", "ad", "up_down" and "left_right". It is possible to select the default sign for an axis prepending a "+" or a "-" to the axis name. For example, "+ws" will set the "ws" axis with the default sign, while "-ws" will set the "ws" axis with the inverted sign. It is also possible to repeat some axis, and use "none" or "" to have dummy axes with always zero value. The order matters. (default: ("ad", "ws", "left_right", "up_down"))
