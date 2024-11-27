@@ -30,8 +30,8 @@ jobs:
       shell: bash -l {0}
       run: |
         # Compilation related dependencies
-        which conda
-        which mamba
+        where conda
+        where mamba
         mamba install cmake compilers make ninja pkg-config
         # Actual dependencies
         mamba install glew glfw yarp
