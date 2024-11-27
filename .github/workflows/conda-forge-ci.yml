@@ -30,6 +30,8 @@ jobs:
       shell: bash -l {0}
       run: |
         # Compilation related dependencies
+        which conda
+        which mamba
         mamba install cmake compilers make ninja pkg-config
         # Actual dependencies
         mamba install glew glfw yarp
@@ -53,6 +55,7 @@ jobs:
       if: contains(matrix.os, 'ubuntu') || contains(matrix.os, 'macos')
       shell: bash -l {0}
       run: |
+        env
         mkdir -p build
         cd build
         cmake -GNinja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} ..
