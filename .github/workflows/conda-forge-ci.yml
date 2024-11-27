@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         build_type: [Release]
-        os: [ubuntu-latest, windows-2019, macos-latest]
+        os: [windows-2022, windows-2019]
         imgui: [mamba, vendored]
       fail-fast: false
 
