@@ -55,18 +55,28 @@ jobs:
       if: contains(matrix.os, 'ubuntu') || contains(matrix.os, 'macos')
       shell: bash -l {0}
       run: |
-        env
         mkdir -p build
         cd build
         cmake -GNinja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} ..
 
     - name: Configure [Windows]
-      if: contains(matrix.os, 'windows')
+      if: contains(matrix.os, 'windows-2019')
       shell: bash -l {0}
       run: |
+        env
         mkdir -p build
         cd build
         cmake -G"Visual Studio 16 2019" -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} ..
+
+    - name: Configure [Windows]
+      if: contains(matrix.os, 'windows-2022')
+      shell: bash -l {0}
+      run: |
+        env
+        mkdir -p build
+        cd build
+        cmake -G"Visual Studio 17 2022" -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} ..
+
 
     - name: Build
       shell: bash -l {0}
