@@ -16,7 +16,7 @@ jobs:
       matrix:
         build_type: [Release]
         os: [ubuntu-latest, windows-2019, macos-latest]
-        imgui: [mamba, vendored]
+        imgui: [conda, vendored]
       fail-fast: false
 
     steps:
@@ -30,24 +30,22 @@ jobs:
       shell: bash -l {0}
       run: |
         # Compilation related dependencies
-        mamba install cmake compilers make ninja pkg-config
+        conda install cmake compilers make ninja pkg-config
         # Actual dependencies
-        mamba install glew glfw yarp
+        conda install glew glfw yarp
 
     - name: Imgui
-      if: contains(matrix.imgui, 'mamba')
+      if: contains(matrix.imgui, 'conda')
       shell: bash -l {0}
       run: |
-        mamba install imgui
+        conda install imgui
 
     - name: OpenGL [Linux]
       if: contains(matrix.os, 'ubuntu')
       shell: bash -l {0}
       run: |
-        # OpenGL is not found on Ubuntu when using conda. Related issue https://github.com/robotology/robotology-superbuild/issues/929
-        # See https://github.com/robotology/robotology-superbuild/issues/477
-        # See https://github.com/robotology/robotology-superbuild/pull/1606
-        mamba install expat freeglut libselinux-cos7-x86_64 xorg-libxau libxcb xorg-libxdamage xorg-libxext xorg-libxfixes xorg-libxxf86vm xorg-libxrandr mesa-libgl-cos7-x86_64 mesa-libgl-devel-cos7-x86_64
+        # On linux we need to install libgl-devel
+        conda install libgl-devel
 
     - name: Configure [Linux, macOS]
       if: contains(matrix.os, 'ubuntu') || contains(matrix.os, 'macos')

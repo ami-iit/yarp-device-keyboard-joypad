@@ -19,9 +19,9 @@ https://github.com/ami-iit/yarp-device-keyboard-joypad/assets/18591940/7717159e-
 - ``GLEW``
 - [``imgui``](https://github.com/ocornut/imgui) (Will be downloaded automatically if not found)
 
-The dependencies can also be installed via [``mamba``](https://github.com/mamba-org/mamba) using the following command:
+The dependencies can also be installed via ``conda``. If you do not have a ``conda`` distribution on your system, we suggest using the minimal [``miniforge``](https://github.com/conda-forge/miniforge) distribution, that uses ``conda-forge`` packages by default.
 ```bash
-mamba install cmake compilers make ninja pkg-config glew glfw yarp imgui
+conda install cmake compilers make ninja pkg-config glew glfw yarp imgui
 ```
 
 ## Configuration parameters
