@@ -35,6 +35,8 @@ jobs:
         mamba install cmake compilers make ninja pkg-config
         # Actual dependencies
         mamba install glew glfw yarp
+        mamba list
+        conda list
 
     - name: Imgui
       if: contains(matrix.imgui, 'mamba')
@@ -64,6 +66,7 @@ jobs:
       shell: bash -l {0}
       run: |
         env
+        conda list
         mkdir -p build
         cd build
         cmake -G"Visual Studio 16 2019" -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} ..
